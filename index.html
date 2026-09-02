@@ -130,7 +130,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
    ==================================================================== */
 const SUPABASE_URL = "https://fhukdlxdwusczuxvrttq.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_Oihk_i3MkH86X0mEPZEhSA_SoEH4Zc4";
-const SUPABASE_NOT_CONFIGURED = (SUPABASE_URL === "https://fhukdlxdwusczuxvrttq.supabase.co");
+/* Detects placeholder values without re-checking against the strings above
+   (so a find/replace that touches every "YOUR_SUPABASE..." occurrence can't
+   accidentally break this check). A real Supabase URL always starts with
+   "https://" and a real key is much longer than the placeholder text. */
+const SUPABASE_NOT_CONFIGURED = !/^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL) || SUPABASE_ANON_KEY.length < 20;
 let sb = null;
 if(!SUPABASE_NOT_CONFIGURED){
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
