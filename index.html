@@ -128,9 +128,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
    PASTE YOUR SUPABASE CONFIG HERE before deploying (see setup guide).
    Supabase dashboard -> Project Settings -> API -> Project URL + anon public key
    ==================================================================== */
-const SUPABASE_URL = "YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
-const SUPABASE_NOT_CONFIGURED = (SUPABASE_URL === "YOUR_SUPABASE_URL");
+const SUPABASE_URL = "https://fhukdlxdwusczuxvrttq.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Oihk_i3MkH86X0mEPZEhSA_SoEH4Zc4";
+const SUPABASE_NOT_CONFIGURED = (SUPABASE_URL === "https://fhukdlxdwusczuxvrttq.supabase.co");
 let sb = null;
 if(!SUPABASE_NOT_CONFIGURED){
   sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
