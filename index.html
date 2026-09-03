@@ -296,6 +296,35 @@ async function ssetMany(rows){
     return true;
   }catch(e){ console.error('ssetMany failed', e); return false; }
 }
+// Deletes EVERY row in the table (used by the host's "Wipe all data" tool
+// to clear out test/rehearsal rooms before the real event). All our keys
+// are non-empty strings, so .neq('key','') matches every row.
+async function wipeAllData(){
+  try{
+    const { error } = await sb.from('kv').delete().neq('key','');
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('wipeAllData failed', e); return false; }
+}
+
+/* ---- Local session persistence (survives page refresh / crash) ---- */
+const SESSION_KEY = 'techtrivia_session_v1';
+function saveSession(){
+  try{
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      role: S.role, code: S.code, playerId: S.playerId, playerName: S.playerName, ts: Date.now()
+    }));
+  }catch(e){ /* localStorage unavailable -- non-fatal, just no resume */ }
+}
+function loadSession(){
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function clearSession(){
+  try{ localStorage.removeItem(SESSION_KEY); }catch(e){}
+}
 
 function stopPolling(){
   if(S.pollTimer){ clearInterval(S.pollTimer); S.pollTimer=null; }
@@ -322,22 +351,57 @@ function render(){
 function renderLanding(el){
   stopPolling();
   const urlCode = new URLSearchParams(location.search).get('code');
-  // Arrived via QR / join link (has a ?code= param) -> skip straight to the
-  // join screen and never show the Host option at all.
+
+  // Arrived via QR / join link (has a ?code= param).
   if(urlCode){
+    // If this device already has a saved session for this exact room,
+    // silently resume instead of asking them to re-join (handles a locked
+    // phone screen or accidental refresh mid-quiz).
+    const saved = loadSession();
+    if(saved && saved.role==='player' && saved.code===urlCode && saved.playerId){
+      resumeAsPlayer(saved, el);
+      return;
+    }
     S.screen='join';
     renderJoin(el);
     return;
   }
+
+  // Host's own device: offer to resume an in-progress room if one exists.
+  const savedHost = loadSession();
+  const canResumeHost = savedHost && savedHost.role==='host' && savedHost.code;
+
   el.innerHTML = `
     <h1>Tech Trivia Live</h1>
     <p class="sub">CIO / CDO Edition &middot; Self-hosted, no player limit</p>
-    <button class="btn big" id="hostBtn">Host a Quiz</button>
+    ${canResumeHost ? `<button class="btn big" id="resumeHostBtn">Resume Hosting Room ${escapeHtml(savedHost.code)}</button>` : ''}
+    <button class="btn big${canResumeHost?' secondary':''}" id="hostBtn">Host a Quiz</button>
     <button class="btn big secondary" id="joinBtn">Join a Quiz</button>
-    <div class="footer-link"><a href="#" id="creditLink">${QUESTIONS.length} questions loaded</a></div>
+    <div class="footer-link"><a href="#" id="toolsLink">Host tools</a></div>
+    <div id="toolsPanel" style="display:none; margin-top:14px;">
+      <p class="muted" style="font-size:.85rem;">Clears every room, player and answer from the database. Use this before the real event if you've been rehearsing.</p>
+      <button class="btn secondary" id="wipeBtn">Wipe All Quiz Data</button>
+      <div id="wipeMsg" class="muted center" style="margin-top:8px; font-size:.85rem;"></div>
+    </div>
   `;
   $('#hostBtn').onclick = startHostFlow;
   $('#joinBtn').onclick = ()=>{ S.screen='join'; render(); };
+  if(canResumeHost){
+    $('#resumeHostBtn').onclick = ()=> resumeAsHost(savedHost, el);
+  }
+  $('#toolsLink').onclick = (e)=>{
+    e.preventDefault();
+    const p = $('#toolsPanel');
+    p.style.display = p.style.display==='none' ? 'block' : 'none';
+  };
+  $('#wipeBtn').onclick = async ()=>{
+    const ok = confirm('This permanently deletes ALL rooms, players, and answers in the database (including any live game). Continue?');
+    if(!ok) return;
+    $('#wipeMsg').textContent = 'Wiping…';
+    const success = await wipeAllData();
+    clearSession();
+    $('#wipeMsg').textContent = success ? 'Done — all data cleared.' : 'Something went wrong. Try again.';
+  };
 }
 
 /* ============ HOST: create room ============ */
@@ -353,8 +417,48 @@ async function startHostFlow(){
   const code = genCode();
   S.role='host'; S.code=code;
   await sset(keyGame(code), { phase:'lobby', qIndex:-1, phaseStartedAt:0, phaseDuration:QDUR, stats:[0,0,0,0], answeredCount:0 });
+  saveSession();
   S.screen='host_lobby';
   render();
+}
+
+// Rejoins an in-progress room as host after a refresh/crash, jumping to
+// whichever screen matches the room's current phase in the database.
+async function resumeAsHost(saved, el){
+  const g = await sget(keyGame(saved.code));
+  if(!g){
+    alert("That room no longer exists (it may have been wiped or the game finished a while ago).");
+    clearSession();
+    renderLanding(el);
+    return;
+  }
+  S.role='host'; S.code=saved.code;
+  saveSession();
+  if(g.phase==='lobby') S.screen='host_lobby';
+  else if(g.phase==='question') S.screen='host_question';
+  else if(g.phase==='reveal') S.screen='host_reveal';
+  else S.screen='host_end';
+  render();
+}
+
+// Rejoins an in-progress game as a player after a refresh/locked screen,
+// jumping to whichever screen matches the room's current phase.
+async function resumeAsPlayer(saved, el){
+  const g = await sget(keyGame(saved.code));
+  const prec = await sget(keyPlayer(saved.code, saved.playerId));
+  if(!g || !prec){
+    // Room or player record is gone -- fall back to a normal join screen.
+    clearSession();
+    S.screen='join';
+    renderJoin(el);
+    return;
+  }
+  S.role='player'; S.code=saved.code; S.playerId=saved.playerId; S.playerName=saved.playerName || prec.name;
+  saveSession();
+  if(g.phase==='lobby'){ S.screen='player_wait'; render(); }
+  else if(g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
+  else if(g.phase==='reveal'){ checkResult(g.qIndex); }
+  else { S.screen='player_end'; render(); }
 }
 
 function joinUrl(code){
@@ -397,12 +501,24 @@ function renderHostLobby(el){
     <div class="qr-box"><canvas id="qrCanvas" width="220" height="220"></canvas></div>
     <div id="playerCount" class="center muted" style="margin-bottom:10px;">Waiting for players&hellip;</div>
     <div class="player-list" id="playerList"></div>
+    <div class="row" style="margin-bottom:14px;">
+      <button class="btn secondary" id="copyLinkBtn" style="flex:1;">Copy Join Link</button>
+    </div>
     <button class="btn big" id="startBtn" disabled>Start Game</button>
     <div class="footer-link"><a href="#" id="changeUrlLink">Wrong link? Update it</a></div>
   `;
   drawQR('qrCanvas', url, 220);
   $('#startBtn').onclick = ()=> hostStartQuestion(0);
   $('#changeUrlLink').onclick = (e)=>{ e.preventDefault(); S_publishedBase=null; renderHostLobby(el); };
+  $('#copyLinkBtn').onclick = async ()=>{
+    try{
+      await navigator.clipboard.writeText(url);
+      $('#copyLinkBtn').textContent = 'Copied!';
+      setTimeout(()=>{ const b=$('#copyLinkBtn'); if(b) b.textContent='Copy Join Link'; }, 1500);
+    }catch(e){
+      $('#copyLinkBtn').textContent = url; // fallback: show the link itself to copy manually
+    }
+  };
 
   async function poll(){
     const rows = await slistWithValues(keyPlayersPrefix(S.code));
@@ -450,8 +566,10 @@ function renderHostQuestion(el){
       <div class="row">
         <button class="btn secondary" id="revealNow">Reveal Now</button>
       </div>
+      ${hostToolsRowHtml()}
     `;
     $('#revealNow').onclick = hostReveal;
+    wireHostToolsRow();
 
     // Player count barely changes mid-question, so fetch it once (cheap,
     // count-only query) rather than on every poll cycle.
@@ -571,7 +689,9 @@ function renderHostReveal(el){
         <button class="btn big" id="nextBtn" style="flex:1;">${isLast? 'Finish Quiz' : 'Next Question'} now</button>
         <div class="timer-num" id="advNum" style="min-width:30px;">5</div>
       </div>
+      ${hostToolsRowHtml()}
     `;
+    wireHostToolsRow();
     async function advance(){
       if(S._advancing) return;
       S._advancing = true;
@@ -639,6 +759,7 @@ function renderJoin(el){
     if(!g){ $('#errBox').innerHTML = '<div class="err">Room not found. Check the code.</div>'; return; }
     S.role='player'; S.code=code; S.playerId=genId(); S.playerName=name;
     await sset(keyPlayer(code, S.playerId), { name, score:0, joinedAt:Date.now() });
+    saveSession();
     S.screen='player_wait';
     render();
   };
@@ -786,6 +907,57 @@ function renderPlayerEnd(el){
 
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/* ============ HOST TOOLS: shared across question/reveal screens ============ */
+// Non-destructive peek at current standings -- doesn't touch game state,
+// players never see this, and it doesn't interrupt whatever's already
+// running underneath (timers, polling) since it's just an overlay.
+async function showLeaderboardModal(){
+  let modal = document.getElementById('lbModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'lbModal';
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:60; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div class="card" style="max-width:480px; width:100%; max-height:80vh; overflow-y:auto;">
+    <h2>Current Standings</h2>
+    <div id="lbList" class="muted">Loading&hellip;</div>
+    <button class="btn big secondary" id="lbCloseBtn" style="margin-top:16px;">Close</button>
+  </div>`;
+  modal.style.display = 'flex';
+  document.getElementById('lbCloseBtn').onclick = ()=>{ modal.style.display='none'; };
+  const { players } = await getSortedPlayers(S.code);
+  const listEl = document.getElementById('lbList');
+  if(listEl){
+    listEl.className = '';
+    listEl.innerHTML = players.length ? players.slice(0,15).map((p,i)=>`
+      <div class="leader-item ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
+        <span><span class="rank">#${i+1}</span>${escapeHtml(p.name)}</span>
+        <span>${p.score||0} pts</span>
+      </div>`).join('') : '<p class="muted">No players yet</p>';
+  }
+}
+
+async function endQuizNowFlow(){
+  const ok = confirm('End the quiz now and jump straight to final results? Remaining questions will be skipped.');
+  if(!ok) return;
+  stopPolling();
+  await finalizeGame();
+}
+
+function hostToolsRowHtml(){
+  return `<div class="row" style="margin-top:14px;">
+    <button class="btn secondary" id="peekLbBtn" style="flex:1;">Show Leaderboard</button>
+    <button class="btn secondary" id="endQuizBtn" style="flex:1; color:var(--bad);">End Quiz Now</button>
+  </div>`;
+}
+function wireHostToolsRow(){
+  const peek = document.getElementById('peekLbBtn');
+  const end = document.getElementById('endQuizBtn');
+  if(peek) peek.onclick = showLeaderboardModal;
+  if(end) end.onclick = endQuizNowFlow;
 }
 
 /* ============ QR CODE (client-side, no network) ============ */
