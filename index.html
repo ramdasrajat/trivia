@@ -65,7 +65,18 @@
     background:#eef2ff; color:var(--bg1); padding:8px 16px; border-radius:999px;
     font-weight:700; font-size:.95rem;
   }
+  .timer-row{display:flex; align-items:center; gap:14px; margin:10px 0 22px;}
+  .timer-row .timerbar-track{flex:1; margin:0;}
+  .timer-num{
+    font-size:1.4rem; font-weight:900; color:var(--bg1); min-width:38px; text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
   .timerbar-track{height:10px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:10px 0 22px;}
+  .bonus-badge{
+    display:inline-block; background:linear-gradient(135deg,#f59e0b,#f97316); color:#fff;
+    font-size:.75rem; font-weight:800; padding:3px 10px; border-radius:999px; vertical-align:middle;
+  }
+  .rank-line{font-size:1.15rem; font-weight:700; margin-top:6px;}
   .timerbar-fill{height:100%; background:linear-gradient(90deg,var(--bg2),var(--bg3)); transition:width .2s linear;}
   .qtext{font-size:1.5rem; font-weight:800; margin-bottom:22px; line-height:1.35;}
   .opts{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
@@ -197,7 +208,17 @@ const QUESTIONS = [
 
 const LETTERS=['A','B','C','D'];
 const SHAPES=['\u25B2','\u25C6','\u25CF','\u25A0']; // triangle diamond circle square
-const QDUR = 20000; // ms per question
+const QDUR = 25000; // ms per question
+const ADVANCE_COUNTDOWN = 5000; // ms auto-advance delay after reveal
+function isBonusQuestion(qi){ return (qi+1) % 5 === 0; } // every 5th question (Q5, Q10, ...)
+function bonusMultiplier(qi){ return isBonusQuestion(qi) ? 2 : 1; }
+// Kahoot-style speed scoring: faster correct answers score more (500-1000),
+// doubled on bonus questions.
+function scoreForAnswer(qi, elapsedMs, duration){
+  const frac = Math.max(0, Math.min(1, elapsedMs/duration));
+  const base = Math.round(500 + 500*(1-frac));
+  return base * bonusMultiplier(qi);
+}
 
 /* ============ STATE ============ */
 let S = {
@@ -247,10 +268,39 @@ async function slist(prefix){
     return data ? data.map(r => r.key) : [];
   }catch(e){ console.error('slist failed', prefix, e); return []; }
 }
+// Fetch every key+value under a prefix in ONE round trip (instead of listing
+// keys then getting each one individually -- critical for scaling to many
+// players, since an N+1 pattern would mean 200 requests for 200 players).
+async function slistWithValues(prefix){
+  try{
+    const { data, error } = await sb.from('kv').select('key,value').like('key', prefix + '%');
+    if(error) throw error;
+    return data ? data.map(r => ({ key:r.key, value:r.value })) : [];
+  }catch(e){ console.error('slistWithValues failed', prefix, e); return []; }
+}
+// Lightweight count-only query (no row data transferred) -- used for the
+// frequently-polled "how many have answered" check.
+async function scount(prefix){
+  try{
+    const { count, error } = await sb.from('kv').select('key', { count:'exact', head:true }).like('key', prefix + '%');
+    if(error) throw error;
+    return count || 0;
+  }catch(e){ console.error('scount failed', prefix, e); return 0; }
+}
+// Bulk upsert: write many rows in ONE request instead of one request per row.
+async function ssetMany(rows){
+  if(!rows.length) return true;
+  try{
+    const { error } = await sb.from('kv').upsert(rows);
+    if(error) throw error;
+    return true;
+  }catch(e){ console.error('ssetMany failed', e); return false; }
+}
 
 function stopPolling(){
   if(S.pollTimer){ clearInterval(S.pollTimer); S.pollTimer=null; }
   if(S.tickTimer){ clearInterval(S.tickTimer); S.tickTimer=null; }
+  if(S.netTimer){ clearInterval(S.netTimer); S.netTimer=null; }
 }
 
 /* ============ RENDER ROUTER ============ */
@@ -260,13 +310,11 @@ function render(){
   if(S.screen==='host_lobby') return renderHostLobby(el);
   if(S.screen==='host_question') return renderHostQuestion(el);
   if(S.screen==='host_reveal') return renderHostReveal(el);
-  if(S.screen==='host_leaderboard') return renderHostLeaderboard(el);
   if(S.screen==='host_end') return renderHostEnd(el);
   if(S.screen==='join') return renderJoin(el);
   if(S.screen==='player_wait') return renderPlayerWait(el);
   if(S.screen==='player_question') return renderPlayerQuestion(el);
   if(S.screen==='player_reveal') return renderPlayerReveal(el);
-  if(S.screen==='player_leaderboard') return renderPlayerLeaderboard(el);
   if(S.screen==='player_end') return renderPlayerEnd(el);
 }
 
@@ -274,11 +322,18 @@ function render(){
 function renderLanding(el){
   stopPolling();
   const urlCode = new URLSearchParams(location.search).get('code');
+  // Arrived via QR / join link (has a ?code= param) -> skip straight to the
+  // join screen and never show the Host option at all.
+  if(urlCode){
+    S.screen='join';
+    renderJoin(el);
+    return;
+  }
   el.innerHTML = `
     <h1>Tech Trivia Live</h1>
     <p class="sub">CIO / CDO Edition &middot; Self-hosted, no player limit</p>
     <button class="btn big" id="hostBtn">Host a Quiz</button>
-    <button class="btn big secondary" id="joinBtn">Join a Quiz${urlCode? ' &nbsp;(' + urlCode + ')':''}</button>
+    <button class="btn big secondary" id="joinBtn">Join a Quiz</button>
     <div class="footer-link"><a href="#" id="creditLink">${QUESTIONS.length} questions loaded</a></div>
   `;
   $('#hostBtn').onclick = startHostFlow;
@@ -350,18 +405,18 @@ function renderHostLobby(el){
   $('#changeUrlLink').onclick = (e)=>{ e.preventDefault(); S_publishedBase=null; renderHostLobby(el); };
 
   async function poll(){
-    const keys = await slist(keyPlayersPrefix(S.code));
-    const names = [];
-    for(const k of keys){
-      const v = await sget(k);
-      if(v && v.name) names.push(v.name);
-    }
+    const rows = await slistWithValues(keyPlayersPrefix(S.code));
+    const names = rows.filter(r=>r.value && r.value.name).map(r=>r.value.name);
     $('#playerCount').textContent = names.length + ' player' + (names.length===1?'':'s') + ' joined';
-    $('#playerList').innerHTML = names.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('');
+    // Cap rendered chips for DOM performance with large crowds; still counts everyone.
+    const shown = names.slice(0, 60);
+    const extra = names.length - shown.length;
+    $('#playerList').innerHTML = shown.map(n=>`<span class="chip">${escapeHtml(n)}</span>`).join('')
+      + (extra>0 ? `<span class="chip">+${extra} more</span>` : '');
     $('#startBtn').disabled = names.length===0;
   }
   poll();
-  S.pollTimer = setInterval(poll, 1500);
+  S.pollTimer = setInterval(poll, 2000);
 }
 
 /* ============ HOST: question phase ============ */
@@ -375,76 +430,132 @@ async function hostStartQuestion(qi){
 
 function renderHostQuestion(el){
   stopPolling();
-  const g0 = { qIndex:0 };
-  sget(keyGame(S.code)).then(g=>{
+  sget(keyGame(S.code)).then(async g=>{
     const qi = g.qIndex;
     const [qtext, opts] = QUESTIONS[qi];
+    const bonus = isBonusQuestion(qi);
     el.innerHTML = `
-      <div class="topbar"><span class="qnum">Question ${qi+1} / ${QUESTIONS.length}</span><span class="muted" id="ansCount">0 answered</span></div>
+      <div class="topbar">
+        <span class="qnum">Question ${qi+1} / ${QUESTIONS.length}${bonus ? ' &nbsp;<span class="bonus-badge">2x POINTS</span>' : ''}</span>
+        <span class="muted" id="ansCount">0 answered</span>
+      </div>
       <div class="qtext">${escapeHtml(qtext)}</div>
       <div class="opts">
         ${opts.map((o,i)=>`<div class="opt ${['a','b','c','d'][i]}"><span class="shape">${SHAPES[i]}</span> ${escapeHtml(o)}</div>`).join('')}
       </div>
-      <div class="timerbar-track"><div class="timerbar-fill" id="tfill" style="width:100%"></div></div>
+      <div class="timer-row">
+        <div class="timerbar-track"><div class="timerbar-fill" id="tfill" style="width:100%"></div></div>
+        <div class="timer-num" id="tnum">25</div>
+      </div>
       <div class="row">
         <button class="btn secondary" id="revealNow">Reveal Now</button>
       </div>
     `;
     $('#revealNow').onclick = hostReveal;
 
-    async function tick(){
-      const gg = await sget(keyGame(S.code));
-      if(!gg || gg.phase!=='question'){ return; }
-      const elapsed = Date.now()-gg.phaseStartedAt;
-      const pct = Math.max(0, 100 - (elapsed/gg.phaseDuration*100));
-      $('#tfill').style.width = pct+'%';
-      const akeys = await slist(keyAnsPrefix(S.code, gg.qIndex));
-      $('#ansCount').textContent = akeys.length + ' answered';
-      if(elapsed >= gg.phaseDuration){ hostReveal(); }
+    // Player count barely changes mid-question, so fetch it once (cheap,
+    // count-only query) rather than on every poll cycle.
+    let totalPlayers = await scount(keyPlayersPrefix(S.code));
+    let answeredCount = 0;
+    let revealTriggered = false;
+
+    // Fast, purely local visual tick -- no network call, so this can run
+    // smoothly at 250ms regardless of how many players are connected.
+    function visualTick(){
+      const elapsed = Date.now()-g.phaseStartedAt;
+      const remainingMs = Math.max(0, g.phaseDuration - elapsed);
+      const pct = Math.max(0, 100 - (elapsed/g.phaseDuration*100));
+      const tf = $('#tfill'); if(tf) tf.style.width = pct+'%';
+      const tn = $('#tnum'); if(tn) tn.textContent = Math.ceil(remainingMs/1000);
+      if(elapsed >= g.phaseDuration && !revealTriggered){ revealTriggered=true; hostReveal(); }
     }
-    tick();
-    S.tickTimer = setInterval(tick, 900);
+
+    // Slower network poll -- only checks the answer count (one lightweight
+    // count-only query), independent of how often the visual bar updates.
+    async function netTick(){
+      if(revealTriggered) return;
+      answeredCount = await scount(keyAnsPrefix(S.code, qi));
+      const ac = $('#ansCount'); if(ac) ac.textContent = answeredCount + ' / ' + totalPlayers + ' answered';
+      const allAnswered = totalPlayers > 0 && answeredCount >= totalPlayers;
+      if(allAnswered && !revealTriggered){ revealTriggered=true; hostReveal(); }
+    }
+
+    visualTick();
+    netTick();
+    S.tickTimer = setInterval(visualTick, 250);
+    S.netTimer = setInterval(netTick, 1000);
   });
 }
 
 async function hostReveal(){
+  if(S._revealing) return;
+  S._revealing = true;
   stopPolling();
   const g = await sget(keyGame(S.code));
-  if(!g || g.phase==='reveal'){ return; }
+  if(!g || g.phase==='reveal'){ S._revealing=false; return; }
   const qi = g.qIndex;
   const [,,correctIdx] = QUESTIONS[qi];
-  const akeys = await slist(keyAnsPrefix(S.code, qi));
+
+  // Two bulk reads (not N individual ones) regardless of player count.
+  const [answerRows, playerRows] = await Promise.all([
+    slistWithValues(keyAnsPrefix(S.code, qi)),
+    slistWithValues(keyPlayersPrefix(S.code)),
+  ]);
+
+  const playerMap = new Map(); // id -> player record
+  for(const r of playerRows){
+    if(r.value) playerMap.set(r.key.split(':').pop(), { key:r.key, ...r.value });
+  }
+
   const stats=[0,0,0,0];
-  for(const k of akeys){
-    const ans = await sget(k);
+  const answeredIds = new Set();
+  for(const r of answerRows){
+    const ans = r.value;
     if(!ans) continue;
     stats[ans.optionIdx] = (stats[ans.optionIdx]||0)+1;
     const isCorrect = ans.optionIdx===correctIdx;
-    let gained = 0;
-    if(isCorrect){
-      const elapsed = ans.ts - g.phaseStartedAt;
-      const frac = Math.max(0, Math.min(1, elapsed/g.phaseDuration));
-      gained = Math.round(500 + 500*(1-frac));
-    }
-    const pid = k.split(':').pop();
-    const prec = await sget(keyPlayer(S.code, pid));
+    const gained = isCorrect ? scoreForAnswer(qi, ans.ts - g.phaseStartedAt, g.phaseDuration) : 0;
+    const pid = r.key.split(':').pop();
+    answeredIds.add(pid);
+    const prec = playerMap.get(pid);
     if(prec){
       prec.score = (prec.score||0) + gained;
-      await sset(keyPlayer(S.code, pid), prec);
+      prec.lastGain = gained;
+      prec.lastCorrect = isCorrect;
     }
   }
-  await sset(keyGame(S.code), { ...g, phase:'reveal', stats, answeredCount: akeys.length });
+  // Anyone who didn't answer gets lastGain/lastCorrect reset so their reveal
+  // screen doesn't show a stale result carried over from a prior question.
+  for(const [pid, prec] of playerMap){
+    if(answeredIds.has(pid)) continue;
+    prec.lastGain = 0;
+    prec.lastCorrect = false;
+  }
+
+  // One bulk write for every player's updated record, instead of one
+  // request per player.
+  const rowsToWrite = [...playerMap.values()].map(p => {
+    const { key, ...rest } = p;
+    return { key, value: rest };
+  });
+  await ssetMany(rowsToWrite);
+
+  await sset(keyGame(S.code), { ...g, phase:'reveal', stats, answeredCount: answerRows.length, revealStartedAt: Date.now() });
+  S._revealing = false;
   S.screen='host_reveal';
   render();
 }
 
 function renderHostReveal(el){
   stopPolling();
+  S._advancing = false;
   sget(keyGame(S.code)).then(g=>{
-    const [qtext, opts, correctIdx] = QUESTIONS[g.qIndex];
+    const qi = g.qIndex;
+    const isLast = qi >= QUESTIONS.length-1;
+    const [qtext, opts, correctIdx] = QUESTIONS[qi];
     const total = g.stats.reduce((a,b)=>a+b,0) || 1;
     el.innerHTML = `
-      <div class="topbar"><span class="qnum">Question ${g.qIndex+1} / ${QUESTIONS.length}</span></div>
+      <div class="topbar"><span class="qnum">Question ${qi+1} / ${QUESTIONS.length}</span></div>
       <div class="qtext">${escapeHtml(qtext)}</div>
       ${opts.map((o,i)=>{
         const pct = Math.round((g.stats[i]||0)/total*100);
@@ -456,35 +567,27 @@ function renderHostReveal(el){
           <div style="width:70px;text-align:right;font-weight:700;">${pct}%${mark}</div>
         </div>`;
       }).join('')}
-      <button class="btn big" id="toLeaderboard" style="margin-top:20px;">Show Leaderboard</button>
+      <div class="row" style="margin-top:20px; align-items:center;">
+        <button class="btn big" id="nextBtn" style="flex:1;">${isLast? 'Finish Quiz' : 'Next Question'} now</button>
+        <div class="timer-num" id="advNum" style="min-width:30px;">5</div>
+      </div>
     `;
-    $('#toLeaderboard').onclick = ()=>{ S.screen='host_leaderboard'; render(); };
-  });
-}
+    async function advance(){
+      if(S._advancing) return;
+      S._advancing = true;
+      if(isLast){ await finalizeGame(); } else { await hostStartQuestion(qi+1); }
+    }
+    $('#nextBtn').onclick = advance;
 
-function renderHostLeaderboard(el){
-  stopPolling();
-  (async ()=>{
-    const keys = await slist(keyPlayersPrefix(S.code));
-    const players=[];
-    for(const k of keys){ const v = await sget(k); if(v) players.push(v); }
-    players.sort((a,b)=>(b.score||0)-(a.score||0));
-    const g = await sget(keyGame(S.code));
-    const isLast = g.qIndex >= QUESTIONS.length-1;
-    el.innerHTML = `
-      <h1>Leaderboard</h1>
-      <p class="sub">After question ${g.qIndex+1} of ${QUESTIONS.length}</p>
-      ${players.slice(0,10).map((p,i)=>`
-        <div class="leader-item ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
-          <span><span class="rank">#${i+1}</span>${escapeHtml(p.name)}</span>
-          <span>${p.score||0} pts</span>
-        </div>`).join('') || '<p class="muted">No players yet</p>'}
-      <button class="btn big" id="nextBtn" style="margin-top:16px;">${isLast? 'Finish Quiz' : 'Next Question'}</button>
-    `;
-    $('#nextBtn').onclick = ()=>{
-      if(isLast){ finalizeGame(); } else { hostStartQuestion(g.qIndex+1); }
-    };
-  })();
+    function tick(){
+      const elapsed = Date.now() - (g.revealStartedAt || Date.now());
+      const remaining = Math.max(0, ADVANCE_COUNTDOWN - elapsed);
+      const el2 = $('#advNum'); if(el2) el2.textContent = Math.ceil(remaining/1000);
+      if(remaining<=0){ advance(); }
+    }
+    tick();
+    S.tickTimer = setInterval(tick, 250);
+  });
 }
 
 async function finalizeGame(){
@@ -523,9 +626,11 @@ function renderJoin(el){
     <input type="text" id="codeInput" placeholder="Room code" value="${escapeHtml(urlCode)}" maxlength="6" inputmode="numeric">
     <input type="text" id="nameInput" placeholder="Your name" maxlength="24">
     <button class="btn big" id="joinSubmit">Join</button>
-    <button class="btn secondary" id="backBtn">Back</button>
+    ${urlCode ? '' : '<button class="btn secondary" id="backBtn">Back</button>'}
   `;
-  $('#backBtn').onclick = ()=>{ S.screen='landing'; render(); };
+  if(!urlCode){
+    $('#backBtn').onclick = ()=>{ S.screen='landing'; render(); };
+  }
   $('#joinSubmit').onclick = async ()=>{
     const code = $('#codeInput').value.trim();
     const name = $('#nameInput').value.trim();
@@ -550,7 +655,7 @@ function renderPlayerWait(el){
     const g = await sget(keyGame(S.code));
     if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
   }
-  S.pollTimer = setInterval(poll, 1200);
+  S.pollTimer = setInterval(poll, 2000);
 }
 
 function renderPlayerQuestion(el){
@@ -559,10 +664,16 @@ function renderPlayerQuestion(el){
     if(!g || g.phase!=='question'){ S.screen='player_wait'; render(); return; }
     const qi = g.qIndex;
     const [qtext, opts] = QUESTIONS[qi];
+    const bonus = isBonusQuestion(qi);
     el.innerHTML = `
-      <div class="topbar"><span class="qnum">Question ${qi+1} / ${QUESTIONS.length}</span></div>
+      <div class="topbar">
+        <span class="qnum">Question ${qi+1} / ${QUESTIONS.length}${bonus ? ' &nbsp;<span class="bonus-badge">2x POINTS</span>' : ''}</span>
+      </div>
       <div class="qtext">${escapeHtml(qtext)}</div>
-      <div class="timerbar-track"><div class="timerbar-fill" id="tfill" style="width:100%"></div></div>
+      <div class="timer-row">
+        <div class="timerbar-track"><div class="timerbar-fill" id="tfill" style="width:100%"></div></div>
+        <div class="timer-num" id="tnum">25</div>
+      </div>
       <div class="opts" id="optsWrap">
         ${opts.map((o,i)=>`<button class="opt ${['a','b','c','d'][i]}" data-i="${i}"><span class="shape">${SHAPES[i]}</span> ${escapeHtml(o)}</button>`).join('')}
       </div>
@@ -580,83 +691,87 @@ function renderPlayerQuestion(el){
       };
     });
 
-    async function tick(){
-      const gg = await sget(keyGame(S.code));
-      if(!gg) return;
-      if(gg.phase==='reveal' || gg.phase==='leaderboard'){
-        checkResult(qi);
-        return;
-      }
-      const elapsed = Date.now()-gg.phaseStartedAt;
-      const pct = Math.max(0, 100 - (elapsed/gg.phaseDuration*100));
+    // Fast local visual tick -- pure client-side math, no network call, so
+    // this stays smooth no matter how many players are connected.
+    function visualTick(){
+      const elapsed = Date.now()-g.phaseStartedAt;
+      const remainingMs = Math.max(0, g.phaseDuration - elapsed);
+      const pct = Math.max(0, 100 - (elapsed/g.phaseDuration*100));
       const tf = $('#tfill'); if(tf) tf.style.width = pct+'%';
+      const tn = $('#tnum'); if(tn) tn.textContent = Math.ceil(remainingMs/1000);
     }
-    S.tickTimer = setInterval(tick, 900);
+    // Slower network poll -- just checks whether the host has moved the
+    // game phase past 'question' (either by timeout or everyone answering).
+    let transitioned = false;
+    async function netTick(){
+      if(transitioned) return;
+      const gg = await sget(keyGame(S.code));
+      if(gg && gg.phase!=='question'){ transitioned=true; checkResult(qi); }
+    }
+    visualTick();
+    netTick();
+    S.tickTimer = setInterval(visualTick, 250);
+    S.netTimer = setInterval(netTick, 1000);
   });
 }
 
 async function checkResult(qi){
   stopPolling();
   const [,,correctIdx] = QUESTIONS[qi];
-  const isCorrect = S.myAnswer===correctIdx;
   const prec = await sget(keyPlayer(S.code, S.playerId));
+  const { players } = await getSortedPlayers(S.code);
+  const myRank = players.findIndex(p=>p.id===S.playerId) + 1;
+  S.revealResult = {
+    isCorrect: !!(prec && prec.lastCorrect),
+    noAnswer: S.myAnswer===null,
+    gained: prec ? (prec.lastGain||0) : 0,
+    score: prec ? (prec.score||0) : 0,
+    rank: myRank || players.length,
+    total: players.length,
+  };
   S.screen='player_reveal';
-  render_player_reveal(isCorrect, prec ? prec.score : 0, S.myAnswer===null);
+  render();
 }
 
-function render_player_reveal(isCorrect, score, noAnswer){
-  const el = app();
-  const cls = isCorrect ? 'good' : 'bad';
-  const msg = noAnswer ? "Time's up!" : (isCorrect ? 'Correct!' : 'Not quite');
+async function getSortedPlayers(code){
+  const rows = await slistWithValues(keyPlayersPrefix(code));
+  const players = rows
+    .filter(r => r.value)
+    .map(r => ({ id: r.key.split(':').pop(), ...r.value }));
+  players.sort((a,b)=>(b.score||0)-(a.score||0));
+  return { players };
+}
+
+function renderPlayerReveal(el){
+  stopPolling();
+  const r = S.revealResult || {};
+  const cls = r.isCorrect ? 'good' : 'bad';
+  const msg = r.noAnswer ? "Time's up!" : (r.isCorrect ? 'Correct!' : 'Not quite');
   el.innerHTML = `
     <div class="flash ${cls}">
       <h1>${msg}</h1>
-      <p style="font-size:1.2rem;">Total score: ${score} pts</p>
-      <button class="btn secondary" id="contBtn" style="margin-top:20px;">Continue</button>
+      ${r.gained>0 ? `<p style="font-size:1.4rem; font-weight:800;">+${r.gained} pts</p>` : ''}
+      <p style="font-size:1.2rem;">Total score: ${r.score} pts</p>
+      <p class="rank-line">Rank: #${r.rank} of ${r.total}</p>
+      <p class="muted" style="margin-top:10px;">Next question coming up&hellip;</p>
     </div>
   `;
-  $('#contBtn').onclick = ()=>{ S.screen='player_leaderboard'; render(); };
-  pollForLeaderboardOrNext();
+  pollForNextOrEnd();
 }
 
-function pollForLeaderboardOrNext(){
+function pollForNextOrEnd(){
   S.pollTimer = setInterval(async ()=>{
     const g = await sget(keyGame(S.code));
     if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
     if(g && g.phase==='ended'){ S.screen='player_end'; render(); }
-  }, 1200);
-}
-
-function renderPlayerLeaderboard(el){
-  stopPolling();
-  (async ()=>{
-    const keys = await slist(keyPlayersPrefix(S.code));
-    const players=[];
-    for(const k of keys){ const v = await sget(k); if(v) players.push(v); }
-    players.sort((a,b)=>(b.score||0)-(a.score||0));
-    const myRank = players.findIndex(p=>p.name===S.playerName)+1;
-    el.innerHTML = `
-      <h2>Leaderboard</h2>
-      ${players.slice(0,8).map((p,i)=>`
-        <div class="leader-item ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
-          <span><span class="rank">#${i+1}</span>${escapeHtml(p.name)}</span>
-          <span>${p.score||0} pts</span>
-        </div>`).join('')}
-      <p class="sub center" style="margin-top:14px;">Your rank: #${myRank||'-'}</p>
-      <p class="muted center">Waiting for the host to continue&hellip;</p>
-    `;
-    pollForLeaderboardOrNext();
-  })();
+  }, 1500);
 }
 
 function renderPlayerEnd(el){
   stopPolling();
   (async ()=>{
-    const keys = await slist(keyPlayersPrefix(S.code));
-    const players=[];
-    for(const k of keys){ const v = await sget(k); if(v) players.push(v); }
-    players.sort((a,b)=>(b.score||0)-(a.score||0));
-    const myRank = players.findIndex(p=>p.name===S.playerName)+1;
+    const { players } = await getSortedPlayers(S.code);
+    const myRank = players.findIndex(p=>p.id===S.playerId) + 1;
     el.innerHTML = `
       <h1 class="center">&#127942; Quiz Complete!</h1>
       <p class="sub center">You finished #${myRank||'-'} of ${players.length}</p>
