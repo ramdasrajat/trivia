@@ -574,6 +574,7 @@ function renderHostLobby(el){
 
   const url = joinUrl(S.code);
   el.innerHTML = `
+    ${homeLinkHtml()}
     <h1>Room ready</h1>
     <p class="sub">Players scan the QR or enter the code at your join page</p>
     <div class="code-display">${S.code}</div>
@@ -587,6 +588,7 @@ function renderHostLobby(el){
     <div class="footer-link"><a href="#" id="changeUrlLink">Wrong link? Update it</a></div>
   `;
   drawQR('qrCanvas', url, 220);
+  wireHomeLink(null); // lobby hasn't started yet, nothing to lose by leaving
   $('#startBtn').onclick = ()=> hostStartQuestion(0);
   $('#changeUrlLink').onclick = (e)=>{ e.preventDefault(); S_publishedBase=null; renderHostLobby(el); };
   $('#copyLinkBtn').onclick = async ()=>{
@@ -639,6 +641,7 @@ function renderHostQuestion(el){
     const [qtext, opts] = QUESTIONS[qi];
     const bonus = isBonusQuestion(qi);
     el.innerHTML = `
+      ${homeLinkHtml()}
       <div class="topbar">
         <span class="qnum">Question ${qi+1} / ${QUESTIONS.length}${bonus ? ' &nbsp;<span class="bonus-badge">2x POINTS</span>' : ''}</span>
         <span class="muted" id="ansCount">0 answered</span>
@@ -658,6 +661,7 @@ function renderHostQuestion(el){
       <div id="syncStatus" class="muted center" style="font-size:.75rem; margin:8px 0;"></div>
       ${hostToolsRowHtml()}
     `;
+    wireHomeLink('Leave this screen? The timer will pause until you click "Resume Hosting" again — players will just wait until then.');
     $('#revealNow').onclick = hostReveal;
     $('#skipQBtn').onclick = async ()=>{
       const ok = confirm('Skip this question with no scoring, and move straight to the next one?');
@@ -771,6 +775,7 @@ function renderHostReveal(el){
     const [qtext, opts, correctIdx] = QUESTIONS[qi];
     const total = g.stats.reduce((a,b)=>a+b,0) || 1;
     el.innerHTML = `
+      ${homeLinkHtml()}
       <div class="topbar"><span class="qnum">Question ${qi+1} / ${QUESTIONS.length}</span></div>
       <div class="qtext">${escapeHtml(qtext)}</div>
       ${opts.map((o,i)=>{
@@ -790,6 +795,7 @@ function renderHostReveal(el){
       <div id="syncStatus" class="muted center" style="font-size:.75rem; margin:8px 0;"></div>
       ${hostToolsRowHtml()}
     `;
+    wireHomeLink('Leave this screen? The timer will pause until you click "Resume Hosting" again — players will just wait until then.');
     wireHostToolsRow();
     async function advance(){
       if(S._advancing) return;
@@ -821,6 +827,7 @@ function renderHostEnd(el){
   (async ()=>{
     const { players } = await getSortedPlayers(S.code);
     el.innerHTML = `
+      ${homeLinkHtml()}
       <h1>&#127942; Final Results</h1>
       ${players.slice(0,10).map((p,i)=>`
         <div class="leader-item ${i===0?'top1':i===1?'top2':i===2?'top3':''}">
@@ -832,6 +839,7 @@ function renderHostEnd(el){
       </div>
       <button class="btn big secondary" id="newGameBtn" style="margin-top:10px;">Host New Game</button>
     `;
+    wireHomeLink(null); // quiz is over, nothing to lose
     $('#newGameBtn').onclick = startHostFlow;
     $('#exportCsvBtn').onclick = ()=>{
       const rows = [['Rank','Name','Score']];
@@ -1152,6 +1160,27 @@ function wireHostToolsRow(){
   const end = document.getElementById('endQuizBtn');
   if(peek) peek.onclick = showLeaderboardModal;
   if(end) end.onclick = endQuizNowFlow;
+}
+
+// Shared "Home" navigation for the host, present on every host screen so a
+// mis-tap or wanting to check something on the landing page never requires
+// a hard refresh. Live-game screens ask for confirmation first -- though
+// leaving is actually harmless (the room's timer is wall-clock based, so
+// "Resume Hosting" from the home screen picks up exactly where it left off,
+// even auto-revealing immediately if time already ran out while away).
+function homeLinkHtml(){
+  return `<div class="footer-link" style="text-align:left; margin-bottom:12px;"><a href="#" id="homeLink">&larr; Home</a></div>`;
+}
+function wireHomeLink(confirmMsg){
+  const link = document.getElementById('homeLink');
+  if(!link) return;
+  link.onclick = (e)=>{
+    e.preventDefault();
+    if(confirmMsg && !confirm(confirmMsg)) return;
+    stopPolling();
+    S.screen='landing';
+    render();
+  };
 }
 
 /* ============ QR CODE (client-side, no network) ============ */
