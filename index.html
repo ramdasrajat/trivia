@@ -247,26 +247,51 @@ function keyAnsPrefix(code,qi){ return `qz:${code}:ans:${qi}:`; }
 /* ---- Supabase (Postgres) key-value backend ----
    Table "kv" has two columns: key (text, primary key) and value (jsonb).
    See setup instructions for the one-time SQL to create it. */
+
+// Tracks the last successful request, so screens can show a "synced Xs ago"
+// indicator and players/host can tell at a glance if connectivity has
+// degraded rather than just seeing things silently stop updating.
+let lastSyncOk = null;   // timestamp of last successful request
+let lastSyncFail = null; // timestamp of last failed request
+function markSyncOk(){ lastSyncOk = Date.now(); }
+function markSyncFail(){ lastSyncFail = Date.now(); }
+// Short status string for the small "synced Xs ago" indicators, so a
+// degraded connection is visible instead of things just silently stalling.
+function syncStatusText(){
+  if(!lastSyncOk && !lastSyncFail) return '';
+  const now = Date.now();
+  // A recent failure with no success since is worth flagging even if an
+  // earlier success happened a while ago.
+  if(lastSyncFail && (!lastSyncOk || lastSyncFail > lastSyncOk)){
+    return 'Connection issue — retrying…';
+  }
+  const secs = Math.max(0, Math.round((now - lastSyncOk)/1000));
+  return secs <= 2 ? 'Synced' : `Synced ${secs}s ago`;
+}
+
 async function sget(key){
   try{
     const { data, error } = await sb.from('kv').select('value').eq('key', key).maybeSingle();
     if(error) throw error;
+    markSyncOk();
     return data ? data.value : null;
-  }catch(e){ console.error('sget failed', key, e); return null; }
+  }catch(e){ console.error('sget failed', key, e); markSyncFail(); return null; }
 }
 async function sset(key,val){
   try{
     const { error } = await sb.from('kv').upsert({ key, value: val });
     if(error) throw error;
+    markSyncOk();
     return true;
-  }catch(e){ console.error('sset failed', key, e); return false; }
+  }catch(e){ console.error('sset failed', key, e); markSyncFail(); return false; }
 }
 async function slist(prefix){
   try{
     const { data, error } = await sb.from('kv').select('key').like('key', prefix + '%');
     if(error) throw error;
+    markSyncOk();
     return data ? data.map(r => r.key) : [];
-  }catch(e){ console.error('slist failed', prefix, e); return []; }
+  }catch(e){ console.error('slist failed', prefix, e); markSyncFail(); return []; }
 }
 // Fetch every key+value under a prefix in ONE round trip (instead of listing
 // keys then getting each one individually -- critical for scaling to many
@@ -275,8 +300,9 @@ async function slistWithValues(prefix){
   try{
     const { data, error } = await sb.from('kv').select('key,value').like('key', prefix + '%');
     if(error) throw error;
+    markSyncOk();
     return data ? data.map(r => ({ key:r.key, value:r.value })) : [];
-  }catch(e){ console.error('slistWithValues failed', prefix, e); return []; }
+  }catch(e){ console.error('slistWithValues failed', prefix, e); markSyncFail(); return []; }
 }
 // Lightweight count-only query (no row data transferred) -- used for the
 // frequently-polled "how many have answered" check.
@@ -284,8 +310,9 @@ async function scount(prefix){
   try{
     const { count, error } = await sb.from('kv').select('key', { count:'exact', head:true }).like('key', prefix + '%');
     if(error) throw error;
+    markSyncOk();
     return count || 0;
-  }catch(e){ console.error('scount failed', prefix, e); return 0; }
+  }catch(e){ console.error('scount failed', prefix, e); markSyncFail(); return 0; }
 }
 // Bulk upsert: write many rows in ONE request instead of one request per row.
 async function ssetMany(rows){
@@ -293,8 +320,9 @@ async function ssetMany(rows){
   try{
     const { error } = await sb.from('kv').upsert(rows);
     if(error) throw error;
+    markSyncOk();
     return true;
-  }catch(e){ console.error('ssetMany failed', e); return false; }
+  }catch(e){ console.error('ssetMany failed', e); markSyncFail(); return false; }
 }
 // Deletes EVERY row in the table (used by the host's "Wipe all data" tool
 // to clear out test/rehearsal rooms before the real event). All our keys
@@ -303,8 +331,20 @@ async function wipeAllData(){
   try{
     const { error } = await sb.from('kv').delete().neq('key','');
     if(error) throw error;
+    markSyncOk();
     return true;
-  }catch(e){ console.error('wipeAllData failed', e); return false; }
+  }catch(e){ console.error('wipeAllData failed', e); markSyncFail(); return false; }
+}
+// One-shot round-trip used by the "Test Connection" pre-flight check --
+// writes and reads back a throwaway key, reporting success and latency.
+async function testConnection(){
+  const testKey = 'qz:__conntest__:' + Date.now();
+  const start = performance.now();
+  const wrote = await sset(testKey, { ping: true });
+  if(!wrote) return { ok:false, ms:0 };
+  const read = await sget(testKey);
+  const ms = Math.round(performance.now() - start);
+  return { ok: !!read, ms };
 }
 
 /* ---- Local session persistence (survives page refresh / crash) ---- */
@@ -377,8 +417,22 @@ function renderLanding(el){
     ${canResumeHost ? `<button class="btn big" id="resumeHostBtn">Resume Hosting Room ${escapeHtml(savedHost.code)}</button>` : ''}
     <button class="btn big${canResumeHost?' secondary':''}" id="hostBtn">Host a Quiz</button>
     <button class="btn big secondary" id="joinBtn">Join a Quiz</button>
-    <div class="footer-link"><a href="#" id="toolsLink">Host tools</a></div>
+    <div class="row" style="margin-top:4px;">
+      <a href="#" id="toolsLink" class="footer-link" style="flex:1;">Host tools</a>
+      <a href="#" id="howToLink" class="footer-link" style="flex:1; text-align:right;">How to play</a>
+    </div>
     <div id="toolsPanel" style="display:none; margin-top:14px;">
+      <p class="muted" style="font-size:.85rem;">On a different device and need to take over hosting? Enter the room code:</p>
+      <div class="row">
+        <input type="text" id="resumeCodeInput" placeholder="Room code" maxlength="6" inputmode="numeric" style="flex:1; margin-bottom:8px;">
+        <button class="btn secondary" id="resumeCodeBtn">Resume</button>
+      </div>
+      <div id="resumeCodeMsg" class="err" style="margin-bottom:12px;"></div>
+
+      <p class="muted" style="font-size:.85rem;">Check your connection to the database before doors open:</p>
+      <button class="btn secondary" id="testConnBtn" style="margin-bottom:8px;">Test Connection</button>
+      <div id="testConnMsg" class="muted center" style="margin-bottom:16px; font-size:.85rem;"></div>
+
       <p class="muted" style="font-size:.85rem;">Clears every room, player and answer from the database. Use this before the real event if you've been rehearsing.</p>
       <button class="btn secondary" id="wipeBtn">Wipe All Quiz Data</button>
       <div id="wipeMsg" class="muted center" style="margin-top:8px; font-size:.85rem;"></div>
@@ -393,6 +447,20 @@ function renderLanding(el){
     e.preventDefault();
     const p = $('#toolsPanel');
     p.style.display = p.style.display==='none' ? 'block' : 'none';
+  };
+  $('#howToLink').onclick = (e)=>{ e.preventDefault(); showHowToPlayModal(); };
+  $('#resumeCodeBtn').onclick = async ()=>{
+    const code = $('#resumeCodeInput').value.trim();
+    if(!code){ $('#resumeCodeMsg').textContent = 'Enter a room code'; return; }
+    $('#resumeCodeMsg').textContent = '';
+    await resumeAsHost({ role:'host', code }, el);
+  };
+  $('#testConnBtn').onclick = async ()=>{
+    $('#testConnMsg').textContent = 'Testing…';
+    const r = await testConnection();
+    $('#testConnMsg').textContent = r.ok
+      ? `✓ Connected (${r.ms}ms round trip)`
+      : '✗ Could not reach the database — check your Supabase config and internet connection.';
   };
   $('#wipeBtn').onclick = async ()=>{
     const ok = confirm('This permanently deletes ALL rooms, players, and answers in the database (including any live game). Continue?');
@@ -427,9 +495,20 @@ async function startHostFlow(){
 async function resumeAsHost(saved, el){
   const g = await sget(keyGame(saved.code));
   if(!g){
-    alert("That room no longer exists (it may have been wiped or the game finished a while ago).");
-    clearSession();
-    renderLanding(el);
+    const local = loadSession();
+    const isOwnSavedSession = local && local.role==='host' && local.code===saved.code;
+    if(isOwnSavedSession){
+      // Their own remembered room is genuinely gone -- safe to clear it
+      // and send them back to a clean landing screen.
+      alert("That room no longer exists (it may have been wiped or the game finished a while ago).");
+      clearSession();
+      renderLanding(el);
+    } else {
+      // Manual code entry that just doesn't match anything -- show inline,
+      // don't touch whatever session (if any) is already saved on this device.
+      const msg = document.getElementById('resumeCodeMsg');
+      if(msg) msg.textContent = 'No room found with that code.';
+    }
     return;
   }
   S.role='host'; S.code=saved.code;
@@ -544,6 +623,15 @@ async function hostStartQuestion(qi){
   render();
 }
 
+// Moves straight to the next question with NO scoring for the current one
+// -- for a question that turns out broken/ambiguous live. Distinct from
+// "End Quiz Now" (which jumps to final results): this just skips one
+// question and keeps the quiz going.
+async function hostSkipQuestion(qi){
+  if(qi+1 >= QUESTIONS.length){ await finalizeGame(); return; }
+  await hostStartQuestion(qi+1);
+}
+
 function renderHostQuestion(el){
   stopPolling();
   sget(keyGame(S.code)).then(async g=>{
@@ -565,10 +653,19 @@ function renderHostQuestion(el){
       </div>
       <div class="row">
         <button class="btn secondary" id="revealNow">Reveal Now</button>
+        <button class="btn secondary" id="skipQBtn">Skip This Question</button>
       </div>
+      <div id="syncStatus" class="muted center" style="font-size:.75rem; margin:8px 0;"></div>
       ${hostToolsRowHtml()}
     `;
     $('#revealNow').onclick = hostReveal;
+    $('#skipQBtn').onclick = async ()=>{
+      const ok = confirm('Skip this question with no scoring, and move straight to the next one?');
+      if(!ok) return;
+      revealTriggered = true; // stop any pending auto-reveal from firing
+      stopPolling();
+      await hostSkipQuestion(qi);
+    };
     wireHostToolsRow();
 
     // Player count barely changes mid-question, so fetch it once (cheap,
@@ -585,6 +682,7 @@ function renderHostQuestion(el){
       const pct = Math.max(0, 100 - (elapsed/g.phaseDuration*100));
       const tf = $('#tfill'); if(tf) tf.style.width = pct+'%';
       const tn = $('#tnum'); if(tn) tn.textContent = Math.ceil(remainingMs/1000);
+      const ss = $('#syncStatus'); if(ss) ss.textContent = syncStatusText();
       if(elapsed >= g.phaseDuration && !revealTriggered){ revealTriggered=true; hostReveal(); }
     }
 
@@ -689,6 +787,7 @@ function renderHostReveal(el){
         <button class="btn big" id="nextBtn" style="flex:1;">${isLast? 'Finish Quiz' : 'Next Question'} now</button>
         <div class="timer-num" id="advNum" style="min-width:30px;">5</div>
       </div>
+      <div id="syncStatus" class="muted center" style="font-size:.75rem; margin:8px 0;"></div>
       ${hostToolsRowHtml()}
     `;
     wireHostToolsRow();
@@ -703,6 +802,7 @@ function renderHostReveal(el){
       const elapsed = Date.now() - (g.revealStartedAt || Date.now());
       const remaining = Math.max(0, ADVANCE_COUNTDOWN - elapsed);
       const el2 = $('#advNum'); if(el2) el2.textContent = Math.ceil(remaining/1000);
+      const ss = $('#syncStatus'); if(ss) ss.textContent = syncStatusText();
       if(remaining<=0){ advance(); }
     }
     tick();
@@ -719,10 +819,7 @@ async function finalizeGame(){
 function renderHostEnd(el){
   stopPolling();
   (async ()=>{
-    const keys = await slist(keyPlayersPrefix(S.code));
-    const players=[];
-    for(const k of keys){ const v = await sget(k); if(v) players.push(v); }
-    players.sort((a,b)=>(b.score||0)-(a.score||0));
+    const { players } = await getSortedPlayers(S.code);
     el.innerHTML = `
       <h1>&#127942; Final Results</h1>
       ${players.slice(0,10).map((p,i)=>`
@@ -730,9 +827,29 @@ function renderHostEnd(el){
           <span><span class="rank">#${i+1}</span>${escapeHtml(p.name)}</span>
           <span>${p.score||0} pts</span>
         </div>`).join('') || '<p class="muted">No players joined</p>'}
-      <button class="btn big secondary" id="newGameBtn" style="margin-top:16px;">Host New Game</button>
+      <div class="row" style="margin-top:16px;">
+        <button class="btn secondary" id="exportCsvBtn" style="flex:1;">Download Results (CSV)</button>
+      </div>
+      <button class="btn big secondary" id="newGameBtn" style="margin-top:10px;">Host New Game</button>
     `;
     $('#newGameBtn').onclick = startHostFlow;
+    $('#exportCsvBtn').onclick = ()=>{
+      const rows = [['Rank','Name','Score']];
+      players.forEach((p,i)=> rows.push([i+1, p.name, p.score||0]));
+      const csv = rows.map(r => r.map(v => {
+        const s = String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+      }).join(',')).join('\n');
+      const blob = new Blob([csv], { type:'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tech-trivia-results-${S.code}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
   })();
 }
 
@@ -747,21 +864,41 @@ function renderJoin(el){
     <input type="text" id="nameInput" placeholder="Your name" maxlength="24">
     <button class="btn big" id="joinSubmit">Join</button>
     ${urlCode ? '' : '<button class="btn secondary" id="backBtn">Back</button>'}
+    <div class="footer-link"><a href="#" id="howToLink2">How to play</a></div>
   `;
   if(!urlCode){
     $('#backBtn').onclick = ()=>{ S.screen='landing'; render(); };
   }
+  $('#howToLink2').onclick = (e)=>{ e.preventDefault(); showHowToPlayModal(); };
   $('#joinSubmit').onclick = async ()=>{
     const code = $('#codeInput').value.trim();
-    const name = $('#nameInput').value.trim();
+    let name = $('#nameInput').value.trim();
     if(!code || !name){ $('#errBox').innerHTML = '<div class="err">Enter a room code and your name</div>'; return; }
     const g = await sget(keyGame(code));
     if(!g){ $('#errBox').innerHTML = '<div class="err">Room not found. Check the code.</div>'; return; }
+    if(g.phase==='ended'){ $('#errBox').innerHTML = '<div class="err">This quiz has already finished.</div>'; return; }
+
+    // Avoid a confusing duplicate-looking leaderboard by auto-suffixing a
+    // repeated name (e.g. two "Alex"s -> "Alex" and "Alex (2)").
+    const { players: existing } = await getSortedPlayers(code);
+    const takenNames = new Set(existing.map(p=>p.name));
+    if(takenNames.has(name)){
+      let n = 2;
+      while(takenNames.has(`${name} (${n})`)) n++;
+      name = `${name} (${n})`;
+    }
+
     S.role='player'; S.code=code; S.playerId=genId(); S.playerName=name;
     await sset(keyPlayer(code, S.playerId), { name, score:0, joinedAt:Date.now() });
     saveSession();
-    S.screen='player_wait';
-    render();
+
+    // Route straight to the screen matching where the game actually is,
+    // rather than always showing "waiting for host to start" -- a late
+    // joiner mid-question should see the live question immediately, and
+    // one joining during a reveal should see an honest "in progress" message.
+    if(g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
+    else if(g.phase==='reveal'){ S.screen='player_wait'; render(); }
+    else { S.screen='player_wait'; render(); }
   };
 }
 
@@ -770,8 +907,19 @@ function renderPlayerWait(el){
   el.innerHTML = `
     <div class="waiting-pulse"></div>
     <h2 class="center">You're in, ${escapeHtml(S.playerName)}!</h2>
-    <p class="sub center">Waiting for the host to start&hellip;</p>
+    <p class="sub center" id="waitMsg">Waiting for the host to start&hellip;</p>
   `;
+  // Check immediately (not just on the next poll) so a mid-game joiner sees
+  // accurate messaging right away instead of a misleading flash of
+  // "waiting to start" before the poll corrects it.
+  (async ()=>{
+    const g = await sget(keyGame(S.code));
+    if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); return; }
+    const msgEl = document.getElementById('waitMsg');
+    if(msgEl && g && (g.phase==='reveal')){
+      msgEl.textContent = "Game's in progress — you'll join in at the next question.";
+    }
+  })();
   async function poll(){
     const g = await sget(keyGame(S.code));
     if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
@@ -798,17 +946,35 @@ function renderPlayerQuestion(el){
       <div class="opts" id="optsWrap">
         ${opts.map((o,i)=>`<button class="opt ${['a','b','c','d'][i]}" data-i="${i}"><span class="shape">${SHAPES[i]}</span> ${escapeHtml(o)}</button>`).join('')}
       </div>
+      <div id="answerStatus" class="center" style="margin-top:14px;"></div>
+      <div id="syncStatus" class="muted center" style="font-size:.75rem; margin-top:6px;"></div>
     `;
+    async function submitAnswer(idx, btn){
+      S.myAnswer = idx;
+      document.querySelectorAll('#optsWrap .opt').forEach(x=>{
+        if(x!==btn) x.classList.add('dim');
+      });
+      const statusEl = $('#answerStatus');
+      statusEl.textContent = 'Saving your answer…';
+      const ok = await sset(keyAns(S.code, qi, S.playerId), { optionIdx: idx, ts: Date.now() });
+      if(ok){
+        statusEl.textContent = 'Answer locked in!';
+      } else {
+        // Let them retry -- silently failing here would just look broken.
+        statusEl.innerHTML = "Couldn't save your answer — <a href='#' id='retryAnswerLink'>tap to try again</a>.";
+        document.getElementById('retryAnswerLink').onclick = (e)=>{
+          e.preventDefault();
+          S.myAnswer = null;
+          document.querySelectorAll('#optsWrap .opt').forEach(x=>x.classList.remove('dim'));
+          statusEl.textContent = '';
+        };
+      }
+    }
     document.querySelectorAll('#optsWrap .opt').forEach(b=>{
-      b.onclick = async ()=>{
+      b.onclick = ()=>{
         if(S.myAnswer!==null) return;
         const idx = parseInt(b.getAttribute('data-i'),10);
-        S.myAnswer = idx;
-        await sset(keyAns(S.code, qi, S.playerId), { optionIdx: idx, ts: Date.now() });
-        document.querySelectorAll('#optsWrap .opt').forEach(x=>{
-          if(x!==b) x.classList.add('dim');
-        });
-        el.insertAdjacentHTML('beforeend', '<p class="center muted" style="margin-top:14px;">Answer locked in!</p>');
+        submitAnswer(idx, b);
       };
     });
 
@@ -820,14 +986,20 @@ function renderPlayerQuestion(el){
       const pct = Math.max(0, 100 - (elapsed/g.phaseDuration*100));
       const tf = $('#tfill'); if(tf) tf.style.width = pct+'%';
       const tn = $('#tnum'); if(tn) tn.textContent = Math.ceil(remainingMs/1000);
+      const ss = $('#syncStatus'); if(ss) ss.textContent = syncStatusText();
     }
-    // Slower network poll -- just checks whether the host has moved the
-    // game phase past 'question' (either by timeout or everyone answering).
+    // Slower network poll -- checks whether the host has moved the game
+    // phase past 'question' (normal reveal), OR jumped straight to a new
+    // question index while still in 'question' phase (host used "Skip This
+    // Question" -- no reveal happened, so just follow along silently rather
+    // than showing stale/incorrect reveal info for the skipped question).
     let transitioned = false;
     async function netTick(){
       if(transitioned) return;
       const gg = await sget(keyGame(S.code));
-      if(gg && gg.phase!=='question'){ transitioned=true; checkResult(qi); }
+      if(!gg) return;
+      if(gg.phase!=='question'){ transitioned=true; checkResult(qi); }
+      else if(gg.qIndex!==qi){ transitioned=true; S.myAnswer=null; S.screen='player_question'; render(); }
     }
     visualTick();
     netTick();
@@ -907,6 +1079,28 @@ function renderPlayerEnd(el){
 
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/* ============ SHARED MODAL: How to Play ============ */
+function showHowToPlayModal(){
+  let modal = document.getElementById('htpModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'htpModal';
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:60; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div class="card" style="max-width:480px; width:100%; max-height:80vh; overflow-y:auto;">
+    <h2>How to Play</h2>
+    <p>Each question gives you <b>25 seconds</b> and 4 answer options — tap the one you think is correct.</p>
+    <p>The faster you answer correctly, the more points you get (up to 1000). Wrong or no answer = 0 points.</p>
+    <p>Every 5th question (Q5, Q10, Q15…) is a <span class="bonus-badge">2x POINTS</span> bonus round — double points for a correct answer.</p>
+    <p>After each question you'll see your score and rank, then the next question starts automatically.</p>
+    <p style="margin-bottom:0;">Final standings show up once every question has been played.</p>
+    <button class="btn big secondary" id="htpCloseBtn" style="margin-top:16px;">Got it</button>
+  </div>`;
+  modal.style.display = 'flex';
+  document.getElementById('htpCloseBtn').onclick = ()=>{ modal.style.display='none'; };
 }
 
 /* ============ HOST TOOLS: shared across question/reveal screens ============ */
