@@ -442,9 +442,10 @@ function renderLanding(el){
   const savedHost = loadSession();
   const canResumeHost = savedHost && savedHost.role==='host' && savedHost.code;
 
+  //&middot;
   el.innerHTML = `
-    <h1>Tech Trivia Live</h1>
-    <p class="sub">Gartner DA Summit Edition &middot; </p>
+    <h1>Groundzero Trivia Live</h1>
+    <p class="sub">25 questions, 25 seconds each, 3 winners!</p> 
     ${canResumeHost ? `<button class="btn big" id="resumeHostBtn">Resume Hosting Room ${escapeHtml(savedHost.code)}</button>` : ''}
     <button class="btn big${canResumeHost?' secondary':''}" id="hostBtn">Host a Quiz</button>
     <button class="btn big secondary" id="joinBtn">Join a Quiz</button>
