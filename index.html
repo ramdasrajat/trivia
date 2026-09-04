@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Tech Trivia Live</title>
+<title>GZ Trivia Live</title>
 <style>
   :root{
     --bg1:#4338ca; --bg2:#7c3aed; --bg3:#db2777;
@@ -220,6 +220,37 @@ function scoreForAnswer(qi, elapsedMs, duration){
   return base * bonusMultiplier(qi);
 }
 
+// Gives each player a different, but STABLE, shuffled order of the 4 answer
+// positions for a given question -- so someone shouting "pick C!" across the
+// room doesn't help anyone else, since C means something different on every
+// phone. Purely deterministic and computed locally (no extra DB calls,
+// stable across refresh/resume): seeded from playerId + question index, so
+// the same player always sees the same order for the same question, but
+// different players see different orders. Taps still map back to the real
+// answer underneath, so scoring is completely unaffected.
+function seededShuffleOrder(seedStr, n){
+  // Tiny deterministic string hash -> 32-bit seed.
+  let h = 2166136261;
+  for(let i=0;i<seedStr.length;i++){ h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619); }
+  // mulberry32 PRNG, seeded from the hash above.
+  let state = h >>> 0;
+  function rand(){
+    state |= 0; state = (state + 0x6D2B79F5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  const arr = Array.from({length:n}, (_,i)=>i);
+  for(let i=n-1;i>0;i--){
+    const j = Math.floor(rand()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+function getMyDisplayOrder(qi){
+  return seededShuffleOrder(`${S.playerId}:${qi}`, 4);
+}
+
 /* ============ STATE ============ */
 let S = {
   screen: 'landing',
@@ -413,7 +444,7 @@ function renderLanding(el){
 
   el.innerHTML = `
     <h1>Tech Trivia Live</h1>
-    <p class="sub">CIO / CDO Edition &middot; Self-hosted, no player limit</p>
+    <p class="sub">Gartner DA Summit Edition &middot; </p>
     ${canResumeHost ? `<button class="btn big" id="resumeHostBtn">Resume Hosting Room ${escapeHtml(savedHost.code)}</button>` : ''}
     <button class="btn big${canResumeHost?' secondary':''}" id="hostBtn">Host a Quiz</button>
     <button class="btn big secondary" id="joinBtn">Join a Quiz</button>
@@ -916,7 +947,9 @@ function renderPlayerWait(el){
     <div class="waiting-pulse"></div>
     <h2 class="center">You're in, ${escapeHtml(S.playerName)}!</h2>
     <p class="sub center" id="waitMsg">Waiting for the host to start&hellip;</p>
+    <div class="footer-link"><a href="#" id="howToLink3">How to play</a></div>
   `;
+  $('#howToLink3').onclick = (e)=>{ e.preventDefault(); showHowToPlayModal(); };
   // Check immediately (not just on the next poll) so a mid-game joiner sees
   // accurate messaging right away instead of a misleading flash of
   // "waiting to start" before the poll corrects it.
@@ -942,9 +975,11 @@ function renderPlayerQuestion(el){
     const qi = g.qIndex;
     const [qtext, opts] = QUESTIONS[qi];
     const bonus = isBonusQuestion(qi);
+    const displayOrder = getMyDisplayOrder(qi); // e.g. [2,0,3,1] -> canonical indices in this player's display order
     el.innerHTML = `
       <div class="topbar">
         <span class="qnum">Question ${qi+1} / ${QUESTIONS.length}${bonus ? ' &nbsp;<span class="bonus-badge">2x POINTS</span>' : ''}</span>
+        <a href="#" id="howToLink4" class="muted" style="font-size:.8rem;">How to play</a>
       </div>
       <div class="qtext">${escapeHtml(qtext)}</div>
       <div class="timer-row">
@@ -952,11 +987,12 @@ function renderPlayerQuestion(el){
         <div class="timer-num" id="tnum">25</div>
       </div>
       <div class="opts" id="optsWrap">
-        ${opts.map((o,i)=>`<button class="opt ${['a','b','c','d'][i]}" data-i="${i}"><span class="shape">${SHAPES[i]}</span> ${escapeHtml(o)}</button>`).join('')}
+        ${displayOrder.map((realIdx,displayPos)=>`<button class="opt ${['a','b','c','d'][displayPos]}" data-i="${realIdx}"><span class="shape">${SHAPES[displayPos]}</span> ${escapeHtml(opts[realIdx])}</button>`).join('')}
       </div>
       <div id="answerStatus" class="center" style="margin-top:14px;"></div>
       <div id="syncStatus" class="muted center" style="font-size:.75rem; margin-top:6px;"></div>
     `;
+    $('#howToLink4').onclick = (e)=>{ e.preventDefault(); showHowToPlayModal(); };
     async function submitAnswer(idx, btn){
       S.myAnswer = idx;
       document.querySelectorAll('#optsWrap .opt').forEach(x=>{
