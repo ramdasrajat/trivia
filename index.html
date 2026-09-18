@@ -174,24 +174,16 @@ const QUESTIONS = [
  ["Strictly an on-premise design","No schema enforcement at all","ACID transactions on top of lake storage","Batch processing only, no streaming"],2],
 ["From a CIO view, what is the main danger of unmanaged 'shadow AI'?",
  ["Always spikes cloud compute bills","No risk if the tools are free","Data leaks to ungoverned third-party models","Only an HR policy concern"],2],
-["What is the key difference between a 'monolith' and 'microservices' when scaling?",
- ["Monoliths always scale better","Microservices scale components independently","Microservices remove need for load balancers","No real scaling difference"],1],
 ["Why do enterprises evaluate 'FinOps' practices alongside cloud migration?",
  ["Just DevOps rebranded","Applies only to on-prem budgeting","Cost accountability for variable cloud spend","Compliance framework for public firms only"],2],
 ["What problem does a 'feature store' solve in an enterprise ML platform?",
  ["Stores only raw, unprocessed data","Replaces the data warehouse","Stores model binaries only","Consistent features across training & serving"],3],
-["What is the primary purpose of 'zero-trust architecture'?",
- ["Eliminate passwords org-wide","Trust all internal traffic by default","Verify every user/device, always","A way to cut firewall costs"],2],
 ["What does 'quantization' primarily help optimize for LLM inference costs?",
  ["Increases model parameter count","Lower precision cuts memory & compute cost","Compresses training datasets","Encrypts model weights"],1],
 ["Why might a CDO prefer 'polyglot persistence' over one database technology?",
  ["Fewer vendors to manage overall","One database always underperforms many","Right database for each workload type","Simplifies staffing needs"],2],
-["In a hackathon, what does 'technical debt' refer to when teams rush a prototype?",
- ["Money owed for compute usage","Literal startup funding debt","Shortcuts now, costly rework later","Penalty for missing the deadline"],2],
 ["What is the core distinction between 'observability' and traditional 'monitoring'?",
  ["Same thing, different name","Monitoring is hardware-only","Observability skips log collection","Observability answers new, unplanned questions"],3],
-["Why do enterprises adopt an 'API-first' strategy when modernizing legacy systems?",
- ["Guarantees zero-downtime migrations","Decouples systems, enables reuse across channels","Removes need for authentication","Only relevant for mobile apps"],1],
 ["What risk does data fragmentation pose specifically to enterprise AI initiatives?",
  ["No real impact on AI models","Only affects storage costs","Biased, unreliable models from siloed data","Fixed automatically by a bigger LLM"],2],
 ["What is the primary purpose of 'model governance' frameworks in regulated industries?",
@@ -200,15 +192,13 @@ const QUESTIONS = [
  ["Always cheaper upfront","Swap best-of-breed pieces independently","Removes need for integration","No API management needed"],1],
 ["What is the main advantage of 'schema-on-read' over 'schema-on-write'?",
  ["Always faster query performance","Stricter quality checks at ingestion","Flexible structure, applied at query time","Only works for image/video data"],2],
-["What is the strategic reason enterprises pursue 'hybrid cloud'?",
- ["Always cheaper than either option alone","Public cloud can't support enterprises","Balances compliance, latency & legacy needs","Removes need for cloud governance"],2],
 ["Why is explainability often prioritized over accuracy for high-stakes AI decisions?",
  ["Explainable models are always more accurate","No link to regulatory compliance","Only matters for engineering debugging","Stakeholders must justify decisions, avoid black-box risk"],3],
 ];
 
 const LETTERS=['A','B','C','D'];
 const SHAPES=['\u25B2','\u25C6','\u25CF','\u25A0']; // triangle diamond circle square
-const QDUR = 25000; // ms per question
+const QDUR = 30000; // ms per question
 const ADVANCE_COUNTDOWN = 5000; // ms auto-advance delay after reveal
 function isBonusQuestion(qi){ return (qi+1) % 5 === 0; } // every 5th question (Q5, Q10, ...)
 function bonusMultiplier(qi){ return isBonusQuestion(qi) ? 2 : 1; }
@@ -445,7 +435,7 @@ function renderLanding(el){
   //&middot;
   el.innerHTML = `
     <h1>Groundzero Trivia Live</h1>
-    <p class="sub">25 questions, 25 seconds each, 3 winners!</p> 
+    <p class="sub">20 questions, 30 seconds each, 3 winners!</p> 
     ${canResumeHost ? `<button class="btn big" id="resumeHostBtn">Resume Hosting Room ${escapeHtml(savedHost.code)}</button>` : ''}
     <button class="btn big${canResumeHost?' secondary':''}" id="hostBtn">Host a Quiz</button>
     <button class="btn big secondary" id="joinBtn">Join a Quiz</button>
@@ -684,7 +674,7 @@ function renderHostQuestion(el){
       </div>
       <div class="timer-row">
         <div class="timerbar-track"><div class="timerbar-fill" id="tfill" style="width:100%"></div></div>
-        <div class="timer-num" id="tnum">25</div>
+        <div class="timer-num" id="tnum">30</div>
       </div>
       <div class="row">
         <button class="btn secondary" id="revealNow">Reveal Now</button>
@@ -985,7 +975,7 @@ function renderPlayerQuestion(el){
       <div class="qtext">${escapeHtml(qtext)}</div>
       <div class="timer-row">
         <div class="timerbar-track"><div class="timerbar-fill" id="tfill" style="width:100%"></div></div>
-        <div class="timer-num" id="tnum">25</div>
+        <div class="timer-num" id="tnum">30</div>
       </div>
       <div class="opts" id="optsWrap">
         ${displayOrder.map((realIdx,displayPos)=>`<button class="opt ${['a','b','c','d'][displayPos]}" data-i="${realIdx}"><span class="shape">${SHAPES[displayPos]}</span> ${escapeHtml(opts[realIdx])}</button>`).join('')}
@@ -1137,7 +1127,7 @@ function showHowToPlayModal(){
   }
   modal.innerHTML = `<div class="card" style="max-width:480px; width:100%; max-height:80vh; overflow-y:auto;">
     <h2>How to Play</h2>
-    <p>Each question gives you <b>25 seconds</b> and 4 answer options — tap the one you think is correct.</p>
+    <p>Each question gives you <b>30 seconds</b> and 4 answer options — tap the one you think is correct.</p>
     <p>The faster you answer correctly, the more points you get (up to 1000). Wrong or no answer = 0 points.</p>
     <p>Every 5th question (Q5, Q10, Q15…) is a <span class="bonus-badge">2x POINTS</span> bonus round — double points for a correct answer.</p>
     <p>After each question you'll see your score and rank, then the next question starts automatically.</p>
