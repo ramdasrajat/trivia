@@ -387,10 +387,21 @@ function clearSession(){
   try{ localStorage.removeItem(SESSION_KEY); }catch(e){}
 }
 
+// Every call to stopPolling() marks "a new screen is taking over" by bumping
+// this counter and handing back the new value. Any render function that has
+// to wait on a network call before it can safely touch the DOM/start timers
+// captures this value first, then checks it again once the wait is over --
+// if a newer screen has since taken over (another stopPolling() call bumped
+// it further), the stale call backs off instead of fighting over the same
+// timer slots and DOM nodes. This is what was causing the flickering timer:
+// two overlapping renders could each schedule their own countdown interval,
+// and the second one silently orphaned the first instead of replacing it.
+let S_renderGen = 0;
 function stopPolling(){
   if(S.pollTimer){ clearInterval(S.pollTimer); S.pollTimer=null; }
   if(S.tickTimer){ clearInterval(S.tickTimer); S.tickTimer=null; }
   if(S.netTimer){ clearInterval(S.netTimer); S.netTimer=null; }
+  return ++S_renderGen;
 }
 
 /* ============ RENDER ROUTER ============ */
@@ -568,7 +579,7 @@ function joinUrl(code){
 }
 
 function renderHostLobby(el){
-  stopPolling();
+  const myGen = stopPolling();
 
   // If we can't determine a real public URL (e.g. running inside the artifact
   // preview frame, where location.href is "about:srcdoc"), ask the host to
@@ -624,7 +635,9 @@ function renderHostLobby(el){
   };
 
   async function poll(){
+    if(myGen !== S_renderGen) return;
     const rows = await slistWithValues(keyPlayersPrefix(S.code));
+    if(myGen !== S_renderGen) return; // superseded while that request was in flight
     const names = rows.filter(r=>r.value && r.value.name).map(r=>r.value.name);
     $('#playerCount').textContent = names.length + ' player' + (names.length===1?'':'s') + ' joined';
     // Cap rendered chips for DOM performance with large crowds; still counts everyone.
@@ -657,8 +670,9 @@ async function hostSkipQuestion(qi){
 }
 
 function renderHostQuestion(el){
-  stopPolling();
+  const myGen = stopPolling();
   sget(keyGame(S.code)).then(async g=>{
+    if(myGen !== S_renderGen) return; // a newer screen has already taken over
     const qi = g.qIndex;
     const [qtext, opts] = QUESTIONS[qi];
     const bonus = isBonusQuestion(qi);
@@ -697,12 +711,14 @@ function renderHostQuestion(el){
     // Player count barely changes mid-question, so fetch it once (cheap,
     // count-only query) rather than on every poll cycle.
     let totalPlayers = await scount(keyPlayersPrefix(S.code));
+    if(myGen !== S_renderGen) return; // superseded while that count query was in flight
     let answeredCount = 0;
     let revealTriggered = false;
 
     // Fast, purely local visual tick -- no network call, so this can run
     // smoothly at 250ms regardless of how many players are connected.
     function visualTick(){
+      if(myGen !== S_renderGen) return; // superseded -- stop acting even if not yet cleared
       const elapsed = Date.now()-g.phaseStartedAt;
       const remainingMs = Math.max(0, g.phaseDuration - elapsed);
       const pct = Math.max(0, 100 - (elapsed/g.phaseDuration*100));
@@ -715,8 +731,9 @@ function renderHostQuestion(el){
     // Slower network poll -- only checks the answer count (one lightweight
     // count-only query), independent of how often the visual bar updates.
     async function netTick(){
-      if(revealTriggered) return;
+      if(revealTriggered || myGen !== S_renderGen) return;
       answeredCount = await scount(keyAnsPrefix(S.code, qi));
+      if(myGen !== S_renderGen) return; // superseded while that count query was in flight
       const ac = $('#ansCount'); if(ac) ac.textContent = answeredCount + ' / ' + totalPlayers + ' answered';
       const allAnswered = totalPlayers > 0 && answeredCount >= totalPlayers;
       if(allAnswered && !revealTriggered){ revealTriggered=true; hostReveal(); }
@@ -789,9 +806,10 @@ async function hostReveal(){
 }
 
 function renderHostReveal(el){
-  stopPolling();
+  const myGen = stopPolling();
   S._advancing = false;
   sget(keyGame(S.code)).then(g=>{
+    if(myGen !== S_renderGen) return; // a newer screen has already taken over
     const qi = g.qIndex;
     const isLast = qi >= QUESTIONS.length-1;
     const [qtext, opts, correctIdx] = QUESTIONS[qi];
@@ -827,6 +845,7 @@ function renderHostReveal(el){
     $('#nextBtn').onclick = advance;
 
     function tick(){
+      if(myGen !== S_renderGen) return; // superseded -- stop acting even if not yet cleared
       const elapsed = Date.now() - (g.revealStartedAt || Date.now());
       const remaining = Math.max(0, ADVANCE_COUNTDOWN - elapsed);
       const el2 = $('#advNum'); if(el2) el2.textContent = Math.ceil(remaining/1000);
@@ -933,7 +952,7 @@ function renderJoin(el){
 }
 
 function renderPlayerWait(el){
-  stopPolling();
+  const myGen = stopPolling();
   el.innerHTML = `
     <div class="waiting-pulse"></div>
     <h2 class="center">You're in, ${escapeHtml(S.playerName)}!</h2>
@@ -946,6 +965,7 @@ function renderPlayerWait(el){
   // "waiting to start" before the poll corrects it.
   (async ()=>{
     const g = await sget(keyGame(S.code));
+    if(myGen !== S_renderGen) return; // a newer screen has already taken over
     if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); return; }
     const msgEl = document.getElementById('waitMsg');
     if(msgEl && g && (g.phase==='reveal')){
@@ -953,15 +973,18 @@ function renderPlayerWait(el){
     }
   })();
   async function poll(){
+    if(myGen !== S_renderGen) return;
     const g = await sget(keyGame(S.code));
+    if(myGen !== S_renderGen) return; // superseded while that request was in flight
     if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
   }
   S.pollTimer = setInterval(poll, 2000);
 }
 
 function renderPlayerQuestion(el){
-  stopPolling();
+  const myGen = stopPolling();
   sget(keyGame(S.code)).then(g=>{
+    if(myGen !== S_renderGen) return; // a newer screen has already taken over -- don't fight over it
     if(!g || g.phase!=='question'){ S.screen='player_wait'; render(); return; }
     const qi = g.qIndex;
     const [qtext, opts] = QUESTIONS[qi];
@@ -1016,6 +1039,7 @@ function renderPlayerQuestion(el){
     // Fast local visual tick -- pure client-side math, no network call, so
     // this stays smooth no matter how many players are connected.
     function visualTick(){
+      if(myGen !== S_renderGen) return; // superseded -- stop acting even if not yet cleared
       const elapsed = Date.now()-g.phaseStartedAt;
       const remainingMs = Math.max(0, g.phaseDuration - elapsed);
       const pct = Math.max(0, 100 - (elapsed/g.phaseDuration*100));
@@ -1030,8 +1054,9 @@ function renderPlayerQuestion(el){
     // than showing stale/incorrect reveal info for the skipped question).
     let transitioned = false;
     async function netTick(){
-      if(transitioned) return;
+      if(transitioned || myGen !== S_renderGen) return;
       const gg = await sget(keyGame(S.code));
+      if(myGen !== S_renderGen) return; // a newer screen took over while this request was in flight
       if(!gg) return;
       if(gg.phase!=='question'){ transitioned=true; checkResult(qi); }
       else if(gg.qIndex!==qi){ transitioned=true; S.myAnswer=null; S.screen='player_question'; render(); }
@@ -1044,10 +1069,11 @@ function renderPlayerQuestion(el){
 }
 
 async function checkResult(qi){
-  stopPolling();
+  const myGen = stopPolling();
   const [,,correctIdx] = QUESTIONS[qi];
   const prec = await sget(keyPlayer(S.code, S.playerId));
   const { players } = await getSortedPlayers(S.code);
+  if(myGen !== S_renderGen) return; // a newer screen has already taken over
   const myRank = players.findIndex(p=>p.id===S.playerId) + 1;
   S.revealResult = {
     isCorrect: !!(prec && prec.lastCorrect),
@@ -1071,7 +1097,7 @@ async function getSortedPlayers(code){
 }
 
 function renderPlayerReveal(el){
-  stopPolling();
+  const myGen = stopPolling();
   const r = S.revealResult || {};
   const cls = r.isCorrect ? 'good' : 'bad';
   const msg = r.noAnswer ? "Time's up!" : (r.isCorrect ? 'Correct!' : 'Not quite');
@@ -1084,12 +1110,14 @@ function renderPlayerReveal(el){
       <p class="muted" style="margin-top:10px;">Next question coming up&hellip;</p>
     </div>
   `;
-  pollForNextOrEnd();
+  pollForNextOrEnd(myGen);
 }
 
-function pollForNextOrEnd(){
+function pollForNextOrEnd(myGen){
   S.pollTimer = setInterval(async ()=>{
+    if(myGen !== S_renderGen) return;
     const g = await sget(keyGame(S.code));
+    if(myGen !== S_renderGen) return; // superseded while that request was in flight
     if(g && g.phase==='question'){ S.myAnswer=null; S.screen='player_question'; render(); }
     if(g && g.phase==='ended'){ S.screen='player_end'; render(); }
   }, 1500);
