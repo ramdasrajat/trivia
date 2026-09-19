@@ -155,64 +155,64 @@ if(!SUPABASE_NOT_CONFIGURED){
 /* ============ QUESTION BANK ============ */
 const QUESTIONS = [
 ["A data mesh primarily shifts data ownership to what model?",
- ["Central IT-owned hub-and-spoke","Domains own data, but IT centrally controls standards","Single platform engineering team","Decentralized, domain-owned data products"],3],
+ ["Central IT owns and manages enterprise data","Domains own data with shared governance","A single team owns all data pipelines","Domains own and manage their data products"],3],
 
 ["What is the key ETL vs. ELT trade-off?",
- ["ELT transforms before loading","ELT transforms after loading, using warehouse compute","ETL transforms inside the warehouse","Both load raw data; only formats differ"],1],
+ ["ETL transforms data after loading","ELT transforms data inside the warehouse","ETL transforms data inside the warehouse","Both transform data only after loading"],1],
 
 ["Why choose RAG over fine-tuning for proprietary data?",
- ["Fine-tuning deploys faster","RAG permanently embeds company data in model weights","No retraining—just refresh the index","Fine-tuning updates fewer parameters"],2],
+ ["Fine-tuning avoids maintaining a retrieval system","RAG permanently stores company data in weights","RAG updates knowledge without model retraining","Fine-tuning makes proprietary data instantly current"],2],
 
 ["What does 'data gravity' mean in cloud strategy?",
- ["Apps move toward where large data volumes reside","Data must stay in one jurisdiction","Unused data accumulates as technical debt","Data grows faster than compute capacity"],0],
+ ["Apps move toward where large data resides","Data must remain within one jurisdiction","Unused data accumulates as technical debt","Data growth eventually exceeds available compute"],0],
 
 ["Why prioritize a data contract between teams?",
- ["Legal agreement with cloud vendor","Enforces schema and quality expectations","Defines data-catalog access rights","Guarantees real-time delivery"],1],
+ ["Defines legal terms with cloud providers","Enforces agreed schema and quality expectations","Controls access to cataloged datasets","Guarantees real-time delivery between systems"],1],
 
 ["What does vendor lock-in mitigation address in multi-cloud?",
- ["Security risks from one identity provider","Loss of migration flexibility and pricing leverage","Complexity of multiple cloud consoles","Difficulty hiring niche-skilled engineers"],1],
+ ["Security risks from using multiple identity systems","Loss of migration flexibility and pricing leverage","Complexity from managing multiple cloud platforms","Difficulty hiring engineers for specialized tooling"],1],
 
 ["What is model drift in production ML?",
- ["Accuracy drops from too few training epochs","Training data becomes outdated","Outputs vary for identical inputs","Live data diverges from training data, reducing accuracy"],3],
+ ["Accuracy falls because training was insufficient","Training labels become outdated over time","Outputs change across repeated identical inputs","Live data diverges from the training data"],3],
 
 ["Why is data lineage critical for compliance?",
- ["Tracks dataset query frequency","Maps regulations to sensitive data","Traces data origin and every transformation","Identifies the team responsible for quality"],2],
+ ["Tracks how often datasets are accessed","Maps regulations to specific data categories","Traces data origins and transformations","Identifies teams responsible for data quality"],2],
 
 ["What distinguishes a lakehouse from a traditional data lake?",
- ["Multi-region replication","Only validated structured data allowed","ACID transactions and schema enforcement on object storage","Managed migration from lake to warehouse"],2],
+ ["Replicates data across multiple cloud regions","Accepts only structured data during ingestion","Adds ACID transactions and schema enforcement","Automatically moves lake data into warehouses"],2],
 
 ["What is the main danger of unmanaged 'shadow AI'?",
- ["Sensitive data sent to ungoverned third-party models","More vendor lock-in from popular AI tools","Inconsistent outputs across teams","Unexpected software licensing costs"],0],
+ ["Sensitive data reaches ungoverned external models","Employees standardize on one AI vendor","Teams receive inconsistent model outputs","Software spending bypasses normal procurement"],0],
 
 ["Why evaluate FinOps alongside cloud migration?",
- ["Consolidates cloud invoices","Adds financial accountability and optimizes variable cloud spend","Reviews security before provisioning","Enforces fixed monthly cloud budgets"],1],
+ ["Centralizes invoices under approved vendors","Adds financial accountability to cloud spending","Reviews security before resources are provisioned","Sets fixed monthly budgets for cloud usage"],1],
 
 ["What problem does a feature store solve?",
- ["Stores only labeled training data","Versions model architecture changes","Keeps feature computation consistent in training and serving","Caches recent predictions"],2],
+ ["Stores labeled datasets for repeated training","Tracks changes to model architecture","Keeps features consistent across training and serving","Caches predictions to speed up model inference"],2],
 
 ["What does quantization optimize for in LLM inference?",
- ["Prunes neural connections","Reduces weight precision to cut memory and compute","Distills models into smaller versions","Compresses vocabulary to reduce token costs"],1],
+ ["Removes rarely used neural connections","Reduces weight precision to cut compute and memory","Distills large models into smaller models","Reduces vocabulary size to lower token usage"],1],
 
 ["Why use polyglot persistence?",
- ["Standardizes on one database","Replicates data across databases","Periodically changes database vendors","Uses the best database for each workload"],3],
+ ["Uses one database across all workloads","Replicates data across several database engines","Changes vendors regularly to reduce pricing risk","Uses databases suited to different workload patterns"],3],
 
 ["What distinguishes observability from traditional monitoring?",
- ["Only instruments front ends","Tracks predefined metrics against fixed thresholds","Investigates unexpected issues using rich telemetry","Focuses only on infrastructure metrics"],2],
+ ["Tracks user interactions across application interfaces","Checks predefined metrics against fixed thresholds","Investigates unknown issues through rich telemetry","Focuses mainly on infrastructure health metrics"],2],
 
 ["What risk does data fragmentation pose to enterprise AI?",
- ["Siloed data can produce biased or unreliable models","Raises storage costs","Slows model training","Adds compliance reviews"],0],
+ ["Siloed data can produce biased or unreliable patterns","Duplicate data can increase storage requirements","Multiple systems can slow model training","Separate sources can require additional compliance reviews"],0],
 
 ["What is the main purpose of model governance in regulated industries?",
- ["Assigns infrastructure costs","Defines model deployment standards","Approves third-party AI purchases","Keeps models explainable, tested for bias, and auditable"],3],
+ ["Assigns infrastructure costs to model owners","Defines technical standards for model deployment","Controls purchases of third-party AI tools","Keeps models explainable, tested, and auditable"],3],
 
 ["Why favor composable architecture over monolithic platforms?",
- ["Swap or upgrade components without a full overhaul","Requires rebuilding integrations after changes","Consolidates everything into one vendor suite","Standardizes every team on identical technologies"],0],
+ ["Components can be replaced without rebuilding everything","Integrations must be rebuilt after every component change","Capabilities are consolidated into one vendor platform","Teams use identical technologies across the organization"],0],
 
 ["What is the main advantage of schema-on-read?",
- ["Applies structure flexibly at query time","Converts unstructured data during ingestion","Enforces validation before writing","Pre-computes structure for faster queries"],0],
+ ["Applies structure flexibly when data is queried","Converts unstructured data during ingestion","Enforces strict validation before writing data","Precomputes structure during the ingestion process"],0],
 
 ["Why prioritize explainability over accuracy in high-stakes AI?",
- ["Explainability has no legal impact","Accuracy always outweighs explainability","Explainable models are always more accurate","Decisions must be justified; black boxes create legal and trust risks"],3]
+ ["Explainability has little effect on decision risk","Accuracy should always take priority in regulated AI","Explainable models generally achieve higher accuracy","Decisions require justification and auditability"],3]
 ];
 
 const LETTERS=['A','B','C','D'];
