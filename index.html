@@ -154,46 +154,65 @@ if(!SUPABASE_NOT_CONFIGURED){
 <script>
 /* ============ QUESTION BANK ============ */
 const QUESTIONS = [
-["A 'data mesh' architecture primarily shifts data ownership toward what model?",
- ["A hub-and-spoke model where IT centrally curates data for consuming teams","A federated model where domains own data but IT centrally enforces all interoperability standards","Consolidating pipeline ownership under a single platform engineering team","Decentralized, domain-owned data products"],3],
-["What is the core trade-off when choosing ETL vs. ELT for a modern cloud data warehouse?",
- ["ELT performs transformations before loading, using a dedicated staging server","ELT transforms in-warehouse, leveraging its compute; ETL transforms before load","ETL transforms data inside the target warehouse using its native compute","Both approaches load raw data first, differing only in file format used"],1],
-["Why do enterprises choose RAG over fine-tuning to keep LLMs current with proprietary data?",
- ["Fine-tuning is generally faster to deploy since it skips maintaining a retrieval pipeline","RAG embeds company data permanently into the model's weights during indexing","No retraining needed — just refresh the retrieval index","Fine-tuning updates only a small subset of parameters, making it functionally equivalent to retrieval"],2],
-["What does 'data gravity' refer to in enterprise cloud strategy?",
- ["Apps and services migrate toward where large data volumes already reside","A legal requirement to keep data within a specific jurisdiction","The rate at which unused data accumulates and becomes technical debt","The tendency for data volumes to grow faster than available compute capacity"],0],
-["Why might a CDO prioritize a 'data contract' between producing and consuming teams?",
- ["A legal agreement between the company and its cloud storage vendor","Enforces schema and quality expectations so downstream consumers aren't broken","A governance policy defining who can access which data-catalog entries","A formal SLA guaranteeing real-time delivery between two systems"],1],
-["In multi-cloud strategy, what risk do vendor lock-in mitigation strategies address?",
- ["Increased security exposure from using a single identity provider across clouds","Losing migration flexibility and pricing leverage with the provider","Higher operational complexity from managing multiple cloud consoles","Reduced ability to hire engineers familiar with niche vendor tooling"],1],
-["What is 'model drift' and why does it matter for production ML systems?",
- ["Accuracy degrades due to insufficient training epochs during development","Training data slowly becomes outdated relative to newer labeling standards","A model's outputs become inconsistent across repeated runs on identical input","Live data diverges from training data, degrading real-world accuracy over time"],3],
-["Why is 'data lineage' critical for regulatory compliance (e.g. BFSI, healthcare)?",
- ["Records how frequently a dataset is queried by downstream applications","Maps which regulations apply to a given category of sensitive data","Traces a dataset's origin and every transformation it undergoes, supporting audits","Documents which team is accountable for a dataset's ongoing quality"],2],
-["What distinguishes a 'lakehouse' architecture from a traditional data lake?",
- ["A data lake replicated across multiple cloud regions for redundancy","A data lake that only accepts pre-validated, structured data on ingestion","ACID transactions and schema enforcement layered on top of low-cost object storage","A managed service that automatically migrates a data lake into a warehouse"],2],
-["From a CIO view, what is the main danger of unmanaged 'shadow AI'?",
- ["Sensitive data may be sent to ungoverned third-party models with no oversight","Increased vendor lock-in from employees standardizing on one popular AI tool","Inconsistent outputs across teams from using different model versions","Employees bypass procurement, unexpectedly increasing software licensing costs"],0],
-["Why do enterprises evaluate 'FinOps' practices alongside cloud migration?",
- ["Consolidating all cloud invoices under a single finance-approved vendor","Brings financial accountability and continuous optimization to variable cloud spend","A security review process required before provisioning new cloud resources","A framework for enforcing fixed monthly cloud budgets across departments"],1],
-["What problem does a 'feature store' solve in an enterprise ML platform?",
- ["A centralized repository storing only labeled training datasets for reuse","A versioning system for tracking changes to model architecture over time","Ensures the same feature computations are used in training and real-time serving","A caching layer that speeds up inference by storing recent predictions"],2],
-["What does 'quantization' primarily help optimize for LLM inference costs?",
- ["Pruning rarely-used neural connections to reduce model file size","Reducing numeric precision of model weights to cut memory and compute cost","Distilling a large model into a smaller model with similar performance","Compressing a language model's vocabulary size to reduce token costs"],1],
-["Why might a CDO prefer 'polyglot persistence' over one database technology?",
- ["Standardizing on a single database technology to simplify governance","Replicating the same dataset across multiple database engines for redundancy","Migrating between database vendors periodically to avoid price increases","Using the right database technology for each workload's specific access pattern"],3],
-["What is the core distinction between 'observability' and traditional 'monitoring'?",
- ["Requires instrumenting only front-end interactions, not back-end services","Tracks a predefined set of metrics against fixed alerting thresholds","Enables investigating novel, unanticipated issues using rich telemetry data","Focuses exclusively on infrastructure metrics like CPU and memory usage"],2],
-["What risk does data fragmentation pose specifically to enterprise AI initiatives?",
- ["Models trained on incomplete, siloed data risk learning biased or unreliable patterns","Increases the storage costs of maintaining multiple redundant data copies","Slows down model training time from needing to query multiple systems","Requires additional compliance review before any AI project can begin"],0],
-["What is the primary purpose of 'model governance' frameworks in regulated industries?",
- ["Defines which team owns infrastructure costs for running production models","Establishes the technical standards for how models are deployed to production","Sets the internal approval process for purchasing third-party AI tools","Ensures models stay explainable, tested for bias, and auditable end-to-end"],3],
-["Why might a CIO favor a 'composable' architecture over monolithic platforms?",
- ["Swap or upgrade individual best-of-breed components without a full overhaul","Requires rebuilding the entire integration layer whenever one component changes","Consolidates all business capabilities into a single vendor's platform suite","Standardizes every team on identical technology choices to reduce complexity"],0],
-["What is the main advantage of 'schema-on-read' over 'schema-on-write'?",
- ["Applies structure flexibly at query time rather than enforcing it at ingestion","Automatically converts unstructured data into a relational format on ingestion","Enforces strict validation rules before any data can be written to storage","Improves query performance by pre-computing structure during ingestion"],0],
-["Why is explainability often prioritized over accuracy for high-stakes AI decisions?",
- ["Explainability is primarily a technical concern with no bearing on legal or business risk","Accuracy is prioritized in every regulated industry regardless of explainability","Explainable models consistently achieve higher accuracy than black-box alternatives","Regulators and stakeholders must justify decisions; black-box models carry legal/trust risk"],3],
+["A data mesh primarily shifts data ownership to what model?",
+ ["Central IT-owned hub-and-spoke","Domains own data, but IT centrally controls standards","Single platform engineering team","Decentralized, domain-owned data products"],3],
+
+["What is the key ETL vs. ELT trade-off?",
+ ["ELT transforms before loading","ELT transforms after loading, using warehouse compute","ETL transforms inside the warehouse","Both load raw data; only formats differ"],1],
+
+["Why choose RAG over fine-tuning for proprietary data?",
+ ["Fine-tuning deploys faster","RAG permanently embeds company data in model weights","No retraining—just refresh the index","Fine-tuning updates fewer parameters"],2],
+
+["What does 'data gravity' mean in cloud strategy?",
+ ["Apps move toward where large data volumes reside","Data must stay in one jurisdiction","Unused data accumulates as technical debt","Data grows faster than compute capacity"],0],
+
+["Why prioritize a data contract between teams?",
+ ["Legal agreement with cloud vendor","Enforces schema and quality expectations","Defines data-catalog access rights","Guarantees real-time delivery"],1],
+
+["What does vendor lock-in mitigation address in multi-cloud?",
+ ["Security risks from one identity provider","Loss of migration flexibility and pricing leverage","Complexity of multiple cloud consoles","Difficulty hiring niche-skilled engineers"],1],
+
+["What is model drift in production ML?",
+ ["Accuracy drops from too few training epochs","Training data becomes outdated","Outputs vary for identical inputs","Live data diverges from training data, reducing accuracy"],3],
+
+["Why is data lineage critical for compliance?",
+ ["Tracks dataset query frequency","Maps regulations to sensitive data","Traces data origin and every transformation","Identifies the team responsible for quality"],2],
+
+["What distinguishes a lakehouse from a traditional data lake?",
+ ["Multi-region replication","Only validated structured data allowed","ACID transactions and schema enforcement on object storage","Managed migration from lake to warehouse"],2],
+
+["What is the main danger of unmanaged 'shadow AI'?",
+ ["Sensitive data sent to ungoverned third-party models","More vendor lock-in from popular AI tools","Inconsistent outputs across teams","Unexpected software licensing costs"],0],
+
+["Why evaluate FinOps alongside cloud migration?",
+ ["Consolidates cloud invoices","Adds financial accountability and optimizes variable cloud spend","Reviews security before provisioning","Enforces fixed monthly cloud budgets"],1],
+
+["What problem does a feature store solve?",
+ ["Stores only labeled training data","Versions model architecture changes","Keeps feature computation consistent in training and serving","Caches recent predictions"],2],
+
+["What does quantization optimize for in LLM inference?",
+ ["Prunes neural connections","Reduces weight precision to cut memory and compute","Distills models into smaller versions","Compresses vocabulary to reduce token costs"],1],
+
+["Why use polyglot persistence?",
+ ["Standardizes on one database","Replicates data across databases","Periodically changes database vendors","Uses the best database for each workload"],3],
+
+["What distinguishes observability from traditional monitoring?",
+ ["Only instruments front ends","Tracks predefined metrics against fixed thresholds","Investigates unexpected issues using rich telemetry","Focuses only on infrastructure metrics"],2],
+
+["What risk does data fragmentation pose to enterprise AI?",
+ ["Siloed data can produce biased or unreliable models","Raises storage costs","Slows model training","Adds compliance reviews"],0],
+
+["What is the main purpose of model governance in regulated industries?",
+ ["Assigns infrastructure costs","Defines model deployment standards","Approves third-party AI purchases","Keeps models explainable, tested for bias, and auditable"],3],
+
+["Why favor composable architecture over monolithic platforms?",
+ ["Swap or upgrade components without a full overhaul","Requires rebuilding integrations after changes","Consolidates everything into one vendor suite","Standardizes every team on identical technologies"],0],
+
+["What is the main advantage of schema-on-read?",
+ ["Applies structure flexibly at query time","Converts unstructured data during ingestion","Enforces validation before writing","Pre-computes structure for faster queries"],0],
+
+["Why prioritize explainability over accuracy in high-stakes AI?",
+ ["Explainability has no legal impact","Accuracy always outweighs explainability","Explainable models are always more accurate","Decisions must be justified; black boxes create legal and trust risks"],3]
 ];
 
 const LETTERS=['A','B','C','D'];
