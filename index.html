@@ -155,7 +155,7 @@ if(!SUPABASE_NOT_CONFIGURED){
 /* ============ QUESTION BANK ============ */
 const QUESTIONS = [
 ["A data mesh primarily shifts data ownership to what model?",
- ["Central IT owns and manages enterprise data","Domains own data with shared governance","A single team owns all data pipelines","Domains own and manage their data products"],3],
+ ["Central IT owns and manages enterprise data","IT centrally standardizes data before domain use","A single team owns all data pipelines","Domains own and manage their data products"],3],
 
 ["What is the key ETL vs. ELT trade-off?",
  ["ETL transforms data after loading","ELT transforms data inside the warehouse","ETL transforms data inside the warehouse","Both transform data only after loading"],1],
@@ -173,7 +173,7 @@ const QUESTIONS = [
  ["Security risks from using multiple identity systems","Loss of migration flexibility and pricing leverage","Complexity from managing multiple cloud platforms","Difficulty hiring engineers for specialized tooling"],1],
 
 ["What is model drift in production ML?",
- ["Accuracy falls because training was insufficient","Training labels become outdated over time","Outputs change across repeated identical inputs","Live data diverges from the training data"],3],
+ ["Accuracy falls because training was insufficient","The model's storage size grows over time","Outputs change across repeated identical inputs","Live data diverges from the training data"],3],
 
 ["Why is data lineage critical for compliance?",
  ["Tracks how often datasets are accessed","Maps regulations to specific data categories","Traces data origins and transformations","Identifies teams responsible for data quality"],2],
@@ -182,7 +182,7 @@ const QUESTIONS = [
  ["Replicates data across multiple cloud regions","Accepts only structured data during ingestion","Adds ACID transactions and schema enforcement","Automatically moves lake data into warehouses"],2],
 
 ["What is the main danger of unmanaged 'shadow AI'?",
- ["Sensitive data reaches ungoverned external models","Employees standardize on one AI vendor","Teams receive inconsistent model outputs","Software spending bypasses normal procurement"],0],
+ ["Sensitive data reaches ungoverned external models","Employees standardize on one AI vendor","Teams receive inconsistent model outputs","AI vendors often change their pricing"],0],
 
 ["Why evaluate FinOps alongside cloud migration?",
  ["Centralizes invoices under approved vendors","Adds financial accountability to cloud spending","Reviews security before resources are provisioned","Sets fixed monthly budgets for cloud usage"],1],
@@ -199,11 +199,11 @@ const QUESTIONS = [
 ["What distinguishes observability from traditional monitoring?",
  ["Tracks user interactions across application interfaces","Checks predefined metrics against fixed thresholds","Investigates unknown issues through rich telemetry","Focuses mainly on infrastructure health metrics"],2],
 
-["What risk does data fragmentation pose to enterprise AI?",
- ["Siloed data can produce biased or unreliable patterns","Duplicate data can increase storage requirements","Multiple systems can slow model training","Separate sources can require additional compliance reviews"],0],
+["What risk does data fragmentation does not pose to enterprise AI?",
+ ["Siloed data can produce unreliable patterns","Duplicate data can increase model bias","Multiple systems can slow model training","Separate sources require mandatory additional compliance"],3],
 
 ["What is the main purpose of model governance in regulated industries?",
- ["Assigns infrastructure costs to model owners","Defines technical standards for model deployment","Controls purchases of third-party AI tools","Keeps models explainable, tested, and auditable"],3],
+ ["Assigns infrastructure costs to model owners","Determines which cloud region hosts models","Controls purchases of third-party AI tools","Keeps models explainable, tested, and auditable"],3],
 
 ["Why favor composable architecture over monolithic platforms?",
  ["Components can be replaced without rebuilding everything","Integrations must be rebuilt after every component change","Capabilities are consolidated into one vendor platform","Teams use identical technologies across the organization"],0],
@@ -212,7 +212,8 @@ const QUESTIONS = [
  ["Applies structure flexibly when data is queried","Converts unstructured data during ingestion","Enforces strict validation before writing data","Precomputes structure during the ingestion process"],0],
 
 ["Why prioritize explainability over accuracy in high-stakes AI?",
- ["Explainability has little effect on decision risk","Accuracy should always take priority in regulated AI","Explainable models generally achieve higher accuracy","Decisions require justification and auditability"],3]
+ ["Explainability has little effect on decision risk","Accuracy should always take priority in regulated AI","Explainability mainly helps engineers debug models internally","Decisions require justification and auditability"],3],
+
 ];
 
 const LETTERS=['A','B','C','D'];
