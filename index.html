@@ -156,64 +156,44 @@ if(!SUPABASE_NOT_CONFIGURED){
 const QUESTIONS = [
 ["A data mesh primarily shifts data ownership to what model?",
  ["Central IT owns and manages enterprise data","IT centrally standardizes data before domain use","A single team owns all data pipelines","Domains own and manage their data products"],3],
-
 ["What is the key ETL vs. ELT trade-off?",
  ["ETL transforms data after loading","ELT transforms data inside the warehouse","ETL transforms data inside the warehouse","Both transform data only after loading"],1],
-
 ["Why choose RAG over fine-tuning for proprietary data?",
  ["Fine-tuning avoids maintaining a retrieval system","RAG permanently stores company data in weights","RAG updates knowledge without model retraining","Fine-tuning makes proprietary data instantly current"],2],
-
 ["What does 'data gravity' mean in cloud strategy?",
  ["Apps move toward where large data resides","Data must remain within one jurisdiction","Unused data accumulates as technical debt","Data growth eventually exceeds available compute"],0],
-
 ["Why prioritize a data contract between teams?",
  ["Defines legal terms with cloud providers","Enforces agreed schema and quality expectations","Controls access to cataloged datasets","Guarantees real-time delivery between systems"],1],
-
 ["What does vendor lock-in mitigation address in multi-cloud?",
  ["Security risks from using multiple identity systems","Loss of migration flexibility and pricing leverage","Complexity from managing multiple cloud platforms","Difficulty hiring engineers for specialized tooling"],1],
-
 ["What is model drift in production ML?",
  ["Accuracy falls because training was insufficient","The model's storage size grows over time","Outputs change across repeated identical inputs","Live data diverges from the training data"],3],
-
 ["Why is data lineage critical for compliance?",
  ["Tracks how often datasets are accessed","Maps regulations to specific data categories","Traces data origins and transformations","Identifies teams responsible for data quality"],2],
-
 ["What distinguishes a lakehouse from a traditional data lake?",
  ["Replicates data across multiple cloud regions","Accepts only structured data during ingestion","Adds ACID transactions and schema enforcement","Automatically moves lake data into warehouses"],2],
-
 ["What is the main danger of unmanaged 'shadow AI'?",
  ["Sensitive data reaches ungoverned external models","Employees standardize on one AI vendor","Teams receive inconsistent model outputs","AI vendors often change their pricing"],0],
-
 ["Why evaluate FinOps alongside cloud migration?",
  ["Centralizes invoices under approved vendors","Adds financial accountability to cloud spending","Reviews security before resources are provisioned","Sets fixed monthly budgets for cloud usage"],1],
-
 ["What problem does a feature store solve?",
  ["Stores labeled datasets for repeated training","Tracks changes to model architecture","Keeps features consistent across training and serving","Caches predictions to speed up model inference"],2],
-
 ["What does quantization optimize for in LLM inference?",
  ["Removes rarely used neural connections","Reduces weight precision to cut compute and memory","Distills large models into smaller models","Reduces vocabulary size to lower token usage"],1],
-
 ["Why use polyglot persistence?",
  ["Uses one database across all workloads","Replicates data across several database engines","Changes vendors regularly to reduce pricing risk","Uses databases suited to different workload patterns"],3],
-
 ["What distinguishes observability from traditional monitoring?",
  ["Tracks user interactions across application interfaces","Checks predefined metrics against fixed thresholds","Investigates unknown issues through rich telemetry","Focuses mainly on infrastructure health metrics"],2],
-
-["What risk does data fragmentation does not pose to enterprise AI?",
- ["Siloed data can produce unreliable patterns","Duplicate data can increase model bias","Multiple systems can slow model training","Separate sources require mandatory additional compliance"],3],
-
+["What risk does data fragmentation pose to enterprise AI?",
+ ["Siloed data can produce biased or unreliable patterns","Duplicate data can increase storage requirements","Multiple systems can slow model training","Separate sources can require additional compliance reviews"],0],
 ["What is the main purpose of model governance in regulated industries?",
  ["Assigns infrastructure costs to model owners","Determines which cloud region hosts models","Controls purchases of third-party AI tools","Keeps models explainable, tested, and auditable"],3],
-
 ["Why favor composable architecture over monolithic platforms?",
  ["Components can be replaced without rebuilding everything","Integrations must be rebuilt after every component change","Capabilities are consolidated into one vendor platform","Teams use identical technologies across the organization"],0],
-
 ["What is the main advantage of schema-on-read?",
  ["Applies structure flexibly when data is queried","Converts unstructured data during ingestion","Enforces strict validation before writing data","Precomputes structure during the ingestion process"],0],
-
 ["Why prioritize explainability over accuracy in high-stakes AI?",
  ["Explainability has little effect on decision risk","Accuracy should always take priority in regulated AI","Explainability mainly helps engineers debug models internally","Decisions require justification and auditability"],3],
-
 ];
 
 const LETTERS=['A','B','C','D'];
@@ -903,8 +883,8 @@ function renderHostEnd(el){
     wireHomeLink(null); // quiz is over, nothing to lose
     $('#newGameBtn').onclick = startHostFlow;
     $('#exportCsvBtn').onclick = ()=>{
-      const rows = [['Rank','Name','Score']];
-      players.forEach((p,i)=> rows.push([i+1, p.name, p.score||0]));
+      const rows = [['Rank','Name','Company','Score']];
+      players.forEach((p,i)=> rows.push([i+1, p.name, p.company||'', p.score||0]));
       const csv = rows.map(r => r.map(v => {
         const s = String(v);
         return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
@@ -931,6 +911,7 @@ function renderJoin(el){
     <div id="errBox"></div>
     <input type="text" id="codeInput" placeholder="Room code" value="${escapeHtml(urlCode)}" maxlength="6" inputmode="numeric">
     <input type="text" id="nameInput" placeholder="Your name" maxlength="24">
+    <input type="text" id="companyInput" placeholder="Company" maxlength="40">
     <button class="btn big" id="joinSubmit">Join</button>
     ${urlCode ? '' : '<button class="btn secondary" id="backBtn">Back</button>'}
     <div class="footer-link"><a href="#" id="howToLink2">How to play</a></div>
@@ -942,7 +923,8 @@ function renderJoin(el){
   $('#joinSubmit').onclick = async ()=>{
     const code = $('#codeInput').value.trim();
     let name = $('#nameInput').value.trim();
-    if(!code || !name){ $('#errBox').innerHTML = '<div class="err">Enter a room code and your name</div>'; return; }
+    const company = $('#companyInput').value.trim();
+    if(!code || !name || !company){ $('#errBox').innerHTML = '<div class="err">Enter a room code, your name, and your company</div>'; return; }
     const g = await sget(keyGame(code));
     if(!g){ $('#errBox').innerHTML = '<div class="err">Room not found. Check the code.</div>'; return; }
     if(g.phase==='ended'){ $('#errBox').innerHTML = '<div class="err">This quiz has already finished.</div>'; return; }
@@ -958,7 +940,7 @@ function renderJoin(el){
     }
 
     S.role='player'; S.code=code; S.playerId=genId(); S.playerName=name;
-    await sset(keyPlayer(code, S.playerId), { name, score:0, joinedAt:Date.now() });
+    await sset(keyPlayer(code, S.playerId), { name, company, score:0, joinedAt:Date.now() });
     saveSession();
 
     // Route straight to the screen matching where the game actually is,
