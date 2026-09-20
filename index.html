@@ -184,8 +184,8 @@ const QUESTIONS = [
  ["Uses one database across all workloads","Replicates data across several database engines","Changes vendors regularly to reduce pricing risk","Uses databases suited to different workload patterns"],3],
 ["What distinguishes observability from traditional monitoring?",
  ["Tracks user interactions across application interfaces","Checks predefined metrics against fixed thresholds","Investigates unknown issues through rich telemetry","Focuses mainly on infrastructure health metrics"],2],
-["What risk does data fragmentation pose to enterprise AI?",
- ["Siloed data can produce biased or unreliable patterns","Duplicate data can increase storage requirements","Multiple systems can slow model training","Separate sources can require additional compliance reviews"],0],
+["What risk does data fragmentation does not pose to enterprise AI?",
+ ["Siloed data can produce unreliable patterns","Duplicate data can increase model bias","Multiple systems can slow model training","Separate sources can require additional compliance reviews"],0],
 ["What is the main purpose of model governance in regulated industries?",
  ["Assigns infrastructure costs to model owners","Determines which cloud region hosts models","Controls purchases of third-party AI tools","Keeps models explainable, tested, and auditable"],3],
 ["Why favor composable architecture over monolithic platforms?",
@@ -921,13 +921,22 @@ function renderJoin(el){
   }
   $('#howToLink2').onclick = (e)=>{ e.preventDefault(); showHowToPlayModal(); };
   $('#joinSubmit').onclick = async ()=>{
+    const btn = $('#joinSubmit');
+    if(btn.disabled) return; // already processing -- ignore a double-tap outright
     const code = $('#codeInput').value.trim();
     let name = $('#nameInput').value.trim();
     const company = $('#companyInput').value.trim();
     if(!code || !name || !company){ $('#errBox').innerHTML = '<div class="err">Enter a room code, your name, and your company</div>'; return; }
+
+    // Lock the button immediately so a slow network round-trip can't let a
+    // second tap sneak through and create a duplicate player before the
+    // screen has a chance to move on.
+    btn.disabled = true;
+    btn.textContent = 'Joining…';
+
     const g = await sget(keyGame(code));
-    if(!g){ $('#errBox').innerHTML = '<div class="err">Room not found. Check the code.</div>'; return; }
-    if(g.phase==='ended'){ $('#errBox').innerHTML = '<div class="err">This quiz has already finished.</div>'; return; }
+    if(!g){ $('#errBox').innerHTML = '<div class="err">Room not found. Check the code.</div>'; btn.disabled=false; btn.textContent='Join'; return; }
+    if(g.phase==='ended'){ $('#errBox').innerHTML = '<div class="err">This quiz has already finished.</div>'; btn.disabled=false; btn.textContent='Join'; return; }
 
     // Avoid a confusing duplicate-looking leaderboard by auto-suffixing a
     // repeated name (e.g. two "Alex"s -> "Alex" and "Alex (2)").
